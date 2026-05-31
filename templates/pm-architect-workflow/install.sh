@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 把 product-manager + architect 协作能力安装到目标项目。
+# 把 product-manager + architect + developer 协作能力安装到目标项目。
 # 用法：
 #   ./install.sh [目标项目目录]      # 缺省为当前目录
 # 行为：
-#   1. 复制两个 agent 到 <目标>/.claude/agents/
+#   1. 复制三个 agent 到 <目标>/.claude/agents/
 #   2. 把协作流程片段合并进 <目标>/CLAUDE.md（已存在则追加，重复则跳过）
 set -euo pipefail
 
@@ -19,6 +19,7 @@ fi
 mkdir -p "$TARGET/.claude/agents"
 cp "$SRC_DIR/agents/product-manager.md" "$TARGET/.claude/agents/"
 cp "$SRC_DIR/agents/architect.md"       "$TARGET/.claude/agents/"
+cp "$SRC_DIR/agents/developer.md"       "$TARGET/.claude/agents/"
 echo "✓ 已安装 agents 到 $TARGET/.claude/agents/"
 
 # 2) 合并 CLAUDE.md 片段
