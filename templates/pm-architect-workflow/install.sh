@@ -4,7 +4,7 @@
 #   ./install.sh [目标项目目录]      # 缺省为当前目录
 # 行为：
 #   1. 复制三个 agent 到 <目标>/.claude/agents/
-#   2. 复制 prd / design 两个 skill 到 <目标>/.claude/skills/
+#   2. 复制 prd / fds 两个 skill 到 <目标>/.claude/skills/
 #   3. 把协作流程片段合并进 <目标>/CLAUDE.md（已存在则追加，重复则跳过）
 set -euo pipefail
 
@@ -23,11 +23,11 @@ cp "$SRC_DIR/agents/architect.md"       "$TARGET/.claude/agents/"
 cp "$SRC_DIR/agents/developer.md"       "$TARGET/.claude/agents/"
 echo "✓ 已安装 agents 到 $TARGET/.claude/agents/"
 
-# 2) 安装 skills（流程入口 /prd 与 /design）
-mkdir -p "$TARGET/.claude/skills/prd" "$TARGET/.claude/skills/design"
-cp "$SRC_DIR/skills/prd/SKILL.md"    "$TARGET/.claude/skills/prd/"
-cp "$SRC_DIR/skills/design/SKILL.md" "$TARGET/.claude/skills/design/"
-echo "✓ 已安装 skills（/prd、/design）到 $TARGET/.claude/skills/"
+# 2) 安装 skills（流程入口 /prd 与 /fds）
+mkdir -p "$TARGET/.claude/skills/prd" "$TARGET/.claude/skills/fds"
+cp "$SRC_DIR/skills/prd/SKILL.md" "$TARGET/.claude/skills/prd/"
+cp "$SRC_DIR/skills/fds/SKILL.md" "$TARGET/.claude/skills/fds/"
+echo "✓ 已安装 skills（/prd、/fds）到 $TARGET/.claude/skills/"
 
 # 3) 合并 CLAUDE.md 片段
 CLAUDE_FILE="$TARGET/CLAUDE.md"
@@ -45,4 +45,4 @@ fi
 # 4) 建好默认文档目录
 mkdir -p "$TARGET/docs/requirements" "$TARGET/docs/design"
 echo "✓ 已创建 docs/requirements 与 docs/design"
-echo "完成。在目标项目里输入 /prd 写需求、/design 写功能设计即可触发。"
+echo "完成。在目标项目里输入 /prd 写需求、/fds 写功能设计即可触发。"

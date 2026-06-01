@@ -1,5 +1,5 @@
 ---
-name: design
+name: fds
 description: 根据《需求定义文档》生成《功能设计文档》。当用户要"写功能设计/技术设计/根据需求文档做设计/生成功能设计文档"时使用。编排 architect 主笔、developer 评审，多轮往返直至双方一致，最后交用户决策。
 argument-hint: <需求文档路径，可留空>
 ---

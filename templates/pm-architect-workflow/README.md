@@ -12,7 +12,7 @@ pm-architect-workflow/
 │   └── developer.md         # 研发 agent（从代码实现角度评审功能设计）
 ├── skills/
 │   ├── prd/SKILL.md         # 流程一入口 /prd（编排需求文档）
-│   └── design/SKILL.md      # 流程二入口 /design（编排功能设计文档）
+│   └── fds/SKILL.md         # 流程二入口 /fds（编排功能设计文档）
 ├── CLAUDE.snippet.md        # 协作流程编排规范（合并进项目 CLAUDE.md）
 ├── install.sh               # 一键安装到目标项目
 └── README.md
@@ -22,7 +22,7 @@ pm-architect-workflow/
 
 ## 架构说明（为什么这么设计）
 
-- **skill 做入口+剧本**：`/prd`、`/design` 既能显式触发，也能在你描述需求时被自动识别，解决"新会话里流程触发不了"。skill 内容仅在调用时加载（渐进披露），不常驻上下文。
+- **skill 做入口+剧本**：`/prd`、`/fds` 既能显式触发，也能在你描述需求时被自动识别，解决"新会话里流程触发不了"。skill 内容仅在调用时加载（渐进披露），不常驻上下文。
 - **subagent 做重活**：三个 agent 各自跑在**隔离上下文**里，其往返推敲**不污染主会话**，不影响你后续写代码/问答。
 - **文件即单一事实来源**：agent 之间、与主线程之间上下文互不可见，跨轮/跨会话记忆只靠落盘文档。因此每次调用都先 Read 最新文档。
 
@@ -31,7 +31,7 @@ pm-architect-workflow/
 | 流程 | 入口 | 主笔 | 评审 | 结束方式 |
 |------|------|------|------|----------|
 | 生成《需求设计文档》 | `/prd` | product-manager | architect | 往返修订 + 终轮整体复审 → 交你**确认** |
-| 生成《功能设计文档》 | `/design` | architect | **developer** | 往返修订 + 终轮整体复审 → 交你**决策** |
+| 生成《功能设计文档》 | `/fds` | architect | **developer** | 往返修订 + 终轮整体复审 → 交你**决策** |
 
 每条流程都包含：
 - **多轮逐条评审**直至无"必须改"意见；
@@ -51,7 +51,7 @@ pm-architect-workflow/
 
 脚本会：
 1. 把三个 agent 复制到 `<目标>/.claude/agents/`
-2. 把 `/prd`、`/design` 两个 skill 复制到 `<目标>/.claude/skills/`
+2. 把 `/prd`、`/fds` 两个 skill 复制到 `<目标>/.claude/skills/`
 3. 把协作流程片段合并进 `<目标>/CLAUDE.md`（已存在则去重追加）
 4. 建好 `docs/requirements/` 与 `docs/design/` 目录
 
@@ -71,7 +71,7 @@ cat CLAUDE.snippet.md >> your-project/CLAUDE.md   # 没有 CLAUDE.md 就先创�
 在目标项目里输入：
 
 - 触发流程一：**`/prd 我想做……（你的诉求）`**
-- 触发流程二：**`/design docs/requirements/xxx-需求定义.md`**
+- 触发流程二：**`/fds docs/requirements/xxx-需求定义.md`**
 
 或直接自然语言描述（"帮我写需求……"），Claude 会自动识别并走对应 skill。每轮结束都会告诉你进展、是否达成一致、以及需要你确认/决策的事项。
 
