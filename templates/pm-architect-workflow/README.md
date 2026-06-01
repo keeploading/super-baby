@@ -13,7 +13,7 @@ pm-architect-workflow/
 ├── skills/
 │   ├── prd/SKILL.md         # 流程一入口 /prd（编排需求文档）
 │   └── fds/SKILL.md         # 流程二入口 /fds（编排功能设计文档）
-├── CLAUDE.snippet.md        # 协作流程编排规范（合并进项目 CLAUDE.md）
+├── CLAUDE.snippet.md        # 触发路由片段（合并进项目 CLAUDE.md，仅常驻极少上下文）
 ├── install.sh               # 一键安装到目标项目
 └── README.md
 ```
@@ -25,6 +25,7 @@ pm-architect-workflow/
 - **skill 做入口+剧本**：`/prd`、`/fds` 既能显式触发，也能在你描述需求时被自动识别，解决"新会话里流程触发不了"。skill 内容仅在调用时加载（渐进披露），不常驻上下文。
 - **subagent 做重活**：三个 agent 各自跑在**隔离上下文**里，其往返推敲**不污染主会话**，不影响你后续写代码/问答。
 - **文件即单一事实来源**：agent 之间、与主线程之间上下文互不可见，跨轮/跨会话记忆只靠落盘文档。因此每次调用都先 Read 最新文档。
+- **CLAUDE.md 只放触发路由**：完整编排剧本写在 skill body（按需加载），CLAUDE.md 仅保留 always-on 的"何时调哪个 skill"，把常驻上下文压到最小、也避免与 skill 维护双份。
 
 ## 两条协作流程
 

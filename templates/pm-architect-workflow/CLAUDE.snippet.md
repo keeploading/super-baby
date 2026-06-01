@@ -1,51 +1,11 @@
 <!-- BEGIN pm-architect-workflow -->
-## 文档协作流程（product-manager + architect + developer）
+## 文档协作流程（触发路由）
 
-本项目定义了三个专家 agent（位于 `.claude/agents/`）与两个流程入口 skill（位于 `.claude/skills/`）：
+本项目通过两个 skill 编排三个专家 agent（product-manager / architect / developer）完成文档协作。**完整流程剧本写在各 skill 里（按需加载，不常驻上下文）；此处只保留触发路由。**
 
-- **product-manager**：产品经理，负责需求定义（以 user story 视角）。
-- **architect**：系统架构师，负责功能/技术设计，及从技术视角评审需求。
-- **developer**：研发工程师，负责从代码实现角度评审功能设计文档。
+- 用户说"写需求 / 做需求 / 生成需求设计文档 / PRD"，或描述待定义的新功能诉求 → **必须**调用 **`prd`** skill（流程一：需求设计文档，product-manager 主笔、architect 评审）。
+- 用户说"写功能设计 / 技术设计 / 根据需求文档生成功能设计文档" → **必须**调用 **`fds`** skill（流程二：功能设计文档，architect 主笔、developer 评审）。
+- 不要在主线程里自己手搓这两类文档；一律走对应 skill，由它编排 agent 往返。
 
-主控（orchestrator）负责在 agent 之间协调往返，agent 之间不互相直接调用。
-
-### 流程入口（skill）
-
-- **`/prd`** → 触发流程一（生成《需求设计文档》）。
-- **`/fds`** → 触发流程二（生成《功能设计文档》）。
-
-用户说"写需求/做需求/生成需求设计文档/PRD"或描述待定义新功能时，**必须**调用 `prd` skill；
-说"写功能设计/技术设计/根据需求文档做设计"时，**必须**调用 `fds` skill。skill 内含完整编排剧本。
-
-### 流程一：生成《需求设计文档》（主笔 product-manager；评审 architect）
-
-1. product-manager 撰写需求文档（user story 视角），落盘 `docs/requirements/`。
-2. architect 评审并答复 PM 的技术疑问。
-3. product-manager 逐条回应并修订。
-4. 重复 2–3 收敛（一般 ≤2~3 轮）。
-5. **终轮整体复审**：architect 通读全文，检查局部修改是否引入全局不一致；有问题回到 3。
-6. 最终文档 + 双方意见 **提交用户确认**。
-
-### 流程二：生成《功能设计文档》（主笔 architect；评审 developer）
-
-1. architect 基于需求文档撰写功能设计（以架构设计开头），落盘 `docs/design/`。
-2. developer 评审：先给"需求/user story 覆盖度小结"，再从代码实现角度产出意见（**须同时参考需求文档**）。
-3. architect 逐条回应并修订。
-4. 重复 2–3 收敛（一般 ≤2~3 轮）。
-5. **终轮整体复审**：developer 通读全文，复核需求是否仍全覆盖、是否引入全局不一致；有问题回到 3。
-6. 双方一致后汇报摘要 + 遗留权衡点，**让用户做最终决策**。
-
-### 编排铁律（两流程通用）
-
-- **文件即单一事实来源**：agent 上下文相互隔离、看不到主线程，记忆只存在于落盘文档。每次调用 agent 必须喂入①原始诉求/需求文档路径 ②目标文档路径（要求其先 Read 最新版）③对方上一轮的**完整**意见原文。
-- **问题不许丢**：每轮返回后扫出标注问题并路由——【技术/设计疑问】转对方 agent 答复；【业务澄清·待用户决策】暂停问用户。
-- **终轮整体复审不可省**：逐条意见解决后，必须额外做一次"通读全文"的复审。
-- **每轮播报**：进展、是否达成一致、待用户确认/决策的事项。
-
-### 通用约定
-
-- 文档默认保存：需求文档放 `docs/requirements/`，设计文档放 `docs/design/`。
-- 两份文档撰写均遵循**奥卡姆剃刀原则**：言简意赅，如无必要、勿增实体。
-- 所有产出默认使用中文。
-- 所有 agent 都不替用户做最终决策，只负责把方案与分歧讲清楚。
+需求文档存 `docs/requirements/`，设计文档存 `docs/design/`；默认中文产出。编排细则（多轮评审、终轮整体复审、问题分类路由、文件即单一事实来源）见 `.claude/skills/prd/SKILL.md` 与 `.claude/skills/fds/SKILL.md`。
 <!-- END pm-architect-workflow -->
