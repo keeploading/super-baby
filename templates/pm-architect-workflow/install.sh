@@ -42,7 +42,7 @@ else
   echo "✓ 已把协作流程片段写入 $CLAUDE_FILE"
 fi
 
-# 4) 建好默认文档目录
-mkdir -p "$TARGET/docs/requirements" "$TARGET/docs/design"
-echo "✓ 已创建 docs/requirements 与 docs/design"
+# 4) 建好默认文档目录（prd 与 fds 默认同放 docs/requirements/<feature>/）
+mkdir -p "$TARGET/docs/requirements"
+echo "✓ 已创建 docs/requirements"
 echo "完成。在目标项目里输入 /prd 写需求、/fds 写功能设计即可触发。"
