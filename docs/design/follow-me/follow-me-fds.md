@@ -1,6 +1,6 @@
 # Cozmo「跟人走」第一阶段 —— 功能设计文档（FDS）
 
-> 状态：v1 草案（待 developer 评审）
+> 状态：v2（已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
 > 上游需求：`docs/requirements/follow-me/follow-me-prd.md`（PRD v8，已定稿）
 > 背景构想：`docs/ideas/follow-me-idea.md`
 > 平台：Mac mini（Apple Silicon / 32GB）+ 实体 Cozmo，底层 [pycozmo](https://github.com/zayfod/pycozmo)
@@ -67,7 +67,7 @@
 ### 1.3 关键架构决策（需评审重点看）
 
 1. **单进程多线程，而非多进程**：三层共享黑板是高频读写的核心耦合点，进程内共享内存 + 锁的成本远低于跨进程 IPC/序列化；MediaPipe 与 pycozmo 均为进程内库；Gemma 经 Ollama 走本地 HTTP（本身就是跨进程的模型服务，认知层只持有 client）。故主程序为单进程，感知/任务/认知各起一个线程（认知层 M4 才启）。详见 §7.1。
-2. **黑板并发模型 = 单写者 + 整体原子替换 + 周期快照**：直接落实 PRD US4.1 并发契约。详见 §4.2。
+2. **黑板并发模型 = 单写者 + 不可变对象整体原子替换 + 同一把锁内周期快照**：直接落实 PRD US4.1 并发契约（复合对象构造后不可变、所有 `set_*` 与 `snapshot()` 走同一把 `threading.Lock`，不依赖 GIL）。详见 §4.2。
 3. **mood-translator 从 M1 的独立轻量单元，到 M2 长成任务层 FSM 的一个子模块**——同一份代码增量演进、接口不变、不推翻。详见 §3.3 与 §8。
 4. **安全维度仲裁固定 安全反射 > 规则 > 模型；心情维度固定 事件即时心情 > 防抖窗口最新有效来源**。仲裁逻辑集中在任务层（mood）与感知层（safety），不分散。详见 §3.4。
 
@@ -83,7 +83,7 @@
 | US1.2 最小人体识别 visible | `perception.PoseDetector`（§3.1）+ `VisibleDebouncer`（§3.2）；person 复合对象预留 cx/size 子字段；感知层耗时/帧率日志（§3.1.3） | M1 |
 | US1.3 见人 surprise | `mood-translator`（§3.3）：visible 上升沿→mood=surprise→HOLD→降级 calm；§3.4 仲裁；§3.5 时序边界 | M1 |
 | US2.1 自由活动+遇崖停 | `task.FreeRoamState`（§3.6.1）随机游走；`safety`（§6.1）悬崖停轮+CLIFF_BACKOFF_MAX 后退 | M2 |
-| US2.2 玩方块 | `task.PlayCubeState`（§3.6.2）；cube 事件→即时心情；PLAY_CUBE_IDLE_TIMEOUT 回退 | M2 |
+| US2.2 玩方块 | `task.PlayCubeState`（§3.6.2）；cube **新 tap_seq/move_seq 事件**（§4.1 单调序号比对，M-B）→即时心情 happy/playful；PLAY_CUBE_IDLE_TIMEOUT 或 cube 断连回退 | M2 |
 | US2.3 自由活动心情 | mood-translator 翻译认知/规则心情；最短保持防抖（§3.4） | M2 |
 | US3.1 转向居中 | 视觉伺服转向律（§3.7.1）：cx_norm→差动转向，TURN_DEADZONE 死区+迟滞 | M3 |
 | US3.2 进退距离 | 视觉伺服距离律（§3.7.2）：size_norm 分区 + 迟滞 + size_max_hard | M3 |
@@ -91,15 +91,15 @@
 | US3.4 丢人升级+搜索 | `task.SearchState`（§3.6.3）+ T1/T2 计时（mood-translator/FSM 共用单调时钟）；复见 surprise→happy | M3 |
 | US3.5 长时间收尾 T3 | SEARCH 态 anxious 起计 T3 → calm + FREE_ROAM（§3.6.3） | M3 |
 | US3.6 去抖+多人选择 | `VisibleDebouncer`（M1/M3 共用）+ 多人选 size_norm 最大者（§3.1.2，M3 起生效） | M1/M3 |
-| US4.1 三层周期+黑板解耦 | §1 架构；§4.2 并发契约；§7 并发模型 | M2 |
-| US4.2 认知决策意图/心情 | `cognition.decide()`（§3.8）结构化输出；解析失败/非法枚举→兜底 | M4 |
+| US4.1 三层周期+黑板解耦 | §1 架构；§4.2 并发契约（单写者+不可变整体替换+同一把锁内快照，M-D）；§7 并发模型 | M2 |
+| US4.2 认知决策意图/心情 | `cognition.decide()`（§3.8）结构化输出；**字段级校验、字段级兜底**（合法字段保留、非法字段走兜底，S-10/CQ-2，US4.2「非法枚举不被采纳」的实现细化、不改本意） | M4 |
 | US4.3 规则兜底+仲裁 | `cognition.rule_fallback()`（§3.8.3）；COG_DECISION_TTL stale 失效；§3.4 仲裁 | M4（仲裁框架 M2 起） |
 | US4.4 安全反射不可绕过 | `safety`（§6.1）感知层内闭环，仲裁最高优先级 | M2 |
 | US4.5 结构化日志 | `world.BlackboardLogger`（§3.9）逐字段/事件 JSON 行 | M2（M1 已用于 visible/帧率/mood 日志） |
 | US4.6 断连重连恢复 | `hal` 连接监控 + `task` 重连恢复（§6.2）；RECONNECT_MAX_RETRIES；重连回 FREE_ROAM | M2 |
-| 七种心情 calm/happy/playful/curious/confused/anxious/surprise | `moods/` 映射表（§4.3）+ mood 枚举（§4.1） | M1（surprise/calm）→ M2/M3 全量 |
+| 七种心情 calm/happy/playful/curious/confused/anxious/surprise | `moods/` 映射表（§4.3）+ mood 枚举（§4.1）；触发落点：surprise=visible 上升沿(§3.5)、happy/playful=cube 新事件/复见(§3.6.2/§3.6.3)、confused/anxious=丢人 T1/T2(§3.6.3/§3.8.3)、calm=默认/降级、**curious=FREE_ROAM 探索扫描经规则兜底写入(§3.6.1/§3.8.3，M-A 闭合死分支)** | M1（surprise/calm）→ M2（+curious/playful/confused/anxious 等规则兜底全量）→ M3（happy 复见链） |
 | 阈值常量 T1/T2/T3/SURPRISE_HOLD/VISIBLE_ON·OFF_FRAMES/TURN_DEADZONE/size_*·size_max_hard/CLIFF_BACKOFF_MAX/COG_DECISION_TTL/RECONNECT_MAX_RETRIES/PLAY_CUBE_IDLE_TIMEOUT | `config.yaml`（§4.4）集中管理 | 各 M |
-| 黑板字段契约（PRD §11） | §4.1 数据模型 + §4.2 读写契约 | 字段按 M1/M3 启用时机 |
+| 黑板字段契约（PRD §11） | §4.1 数据模型 + §4.2 读写契约（同一把锁+不可变，M-D）；cube 即时事件由 PRD §11 的 tapped/moved **实现细化为 tap_seq/move_seq 单调序号**（M-B，语义等价"是否发生新事件"、规避清零写冲突，不违背 PRD 单写者契约） | 字段按 M1/M3 启用时机 |
 
 ---
 
@@ -178,6 +178,29 @@ PRD 的核心设计落点之一。它**归任务层职责**（是 mood 的合法
 
 **增量演进要点**：M1 的 mood-translator 是一个独立的 `MoodTranslator` 对象，由 M1 的极简任务层循环每拍调用。M2 引入完整 FSM 时，`MoodTranslator` 原样作为 FSM 的协作对象被复用——FSM 负责 intention/状态，`MoodTranslator` 仍负责 mood 仲裁/计时/翻译。**接口与内部计时逻辑不变，不推翻**。
 
+#### 3.3.4 tick 入参契约（S-1，澄清 mood-translator 如何获取场景上下文）
+
+mood-translator **不持状态机状态、不读黑板 intention/FSM 状态**（保持其"非 FSM"定位）。它降级落点需要的"场景上下文"由**调用方每拍作为入参传入**，而非自己去读黑板 FSM 状态：
+
+```python
+class MoodTranslator:
+    # 每拍调用一次；ctx 由调用方（M1 极简循环 / M2 FSM 主体）构造后传入
+    def tick(self, snap: "BlackboardSnapshot", ctx: "MoodCtx", now: float) -> None: ...
+
+# MoodCtx：调用方据自身状态构造的场景上下文（任务层内部协作对象，不入黑板）
+MoodCtx = {
+    "following": bool,   # 当前是否处于跟随场景（M2+ 由 FSM 据自身状态=FOLLOW 给出；M1 恒 False，无跟随）
+    "visible": bool,     # 当前去抖后 visible（取自 snap.person）
+    "moving": bool,      # 当前是否处于移动控制中（§3.3.3 决定下发轮式动画 or 仅表情/LED）
+}
+```
+
+- **谁来填 `following`**：M2+ 由 FSM 主体每拍把"自身状态是否为 FOLLOW"折算成 `following` 传入；FSM 状态仍是任务层内部对象，mood-translator 经入参拿到、**不直接读它**——既满足 surprise 降级落点（§3.5）按场景判 happy/calm 的需要，又不破坏"translator 不持状态、不读 intention"的定位。
+- **谁来填 `moving`**：由控制律执行点（§3.7.3）每拍告知是否正占轮移动，决定 mood 表达走轮式动画还是仅表情/LED。
+- **M1 形态**：M1 极简循环恒传 `following=False`（M1 无跟随），故 surprise 降级落点恒为 calm，与 §3.5/§8 一致。
+
+> 这同时消除 S-1 指出的"两写者写同一 mood 字段、HOLD 结束那拍谁有写权"歧义：**mood 字段的唯一写者是 mood-translator**（surprise 计时、降级、即时心情、低频来源仲裁全部在它内部完成）；FSM/规则不直接写 mood，只通过"把 confused/anxious 等作为低频来源经 ctx/snap 传给 translator、由 translator 仲裁后落 mood"。任务层内部"单写 mood = mood-translator"这一点保证 HOLD 结束那拍写权无歧义（§3.4 仲裁链统一在 translator 内裁决）。
+
 #### 3.3.2 心情翻译
 
 mood 翻译是"查表 + 下发"：从 `moods/` 映射表（§4.3）按当前 mood 取得 {动画名/表情参数/LED 颜色}，经 HAL 下发。**最短保持期内不重复下发同一心情的整段动画**（防抖，避免动画被频繁打断 US2.3/US3.3）；仅在 mood 实际切换时下发新表现。
@@ -201,8 +224,8 @@ FOLLOW 态移动中，心情**只走表情/眼睛/LED**；占用车轮的整段 
   ② 通过防抖窗口的最新有效来源（认知层低频心情 / 规则兜底心情）
 ```
 
-- **即时心情来源**：由任务层据感知事实直接触发（visible 上升沿、cube.tapped、cube.moved）。
-- **低频心情来源**：认知层写入 mood（M4）或规则兜底写入 mood（M2 起）。
+- **即时心情来源**：由任务层据感知事实直接触发（visible 上升沿→surprise、cube 新 tap 事件→happy、cube 新 move 事件→playful；事件识别用 §4.1 单调序号比对，见 M-B）。
+- **低频心情来源**：认知层写入 mood（M4）或规则兜底写入 mood（M2 起），含 calm/curious/confused/anxious 等——其中 **curious 由规则兜底在 FREE_ROAM 扫描动作时写入**（M-A，§3.8.3）。
 - **来源区分**：mood-translator 内部维护即时心情的"是否处于保持期"状态，无需把"来源"持久化到黑板。但为支撑 US4.3 仲裁与可观测，黑板 mood 配套写入 `mood_source`（immediate/cognitive/rule）与 `mood_ts`（见 §4.1）——满足 PRD §11「心情需可区分来源」。
 
 > 仲裁结果的最终产物只有一个：当前生效 mood（写黑板 + 翻译下发）。
@@ -229,7 +252,7 @@ FOLLOW 态移动中，心情**只走表情/眼睛/LED**；占用车轮的整段 
 1. **同层处理（不被同级打断）**：HOLDING 态收到同级即时事件（被拍/被移动）→ **丢弃**（设计选定"丢弃"而非"延后"，理由见下）。surprise 保持不变直到 hold_deadline。
    - 选"丢弃"理由：被拍/被移动是瞬时事件，延后到 HOLD 结束（最多 1.5s 后）再补播，语义上已是过期反应、易造成"动作迟到"的违和；而 surprise 本就是强反应，期内丢弃同级瞬时事件对体验影响小、实现也最简（无需事件队列）。PRD 允许二选一，此处定为**丢弃**。
 2. **不冻结 T1**：T1 计时由 `last_seen_ts`（去抖下降沿时刻）独立驱动，**不读 surprise 子状态**——即 surprise 在 HOLD 与否完全不影响 T1。安全反射可随时打断 surprise（§6.1 优先级最高）。
-3. **空窗心情归属（单调升级链）**：hold_deadline 到达时，mood-translator 按当下事实查"落点"：跟随场景+可见→happy；不可见+未到 T1→calm；M1 无跟随→calm。此后 confused/anxious 由 T1/T2 计时单调推进，calm→confused→anxious **不回退**（升级链由 FSM/规则单向推进，mood-translator 不做反向降级）。
+3. **空窗心情归属（单调升级链）**：hold_deadline 到达时，mood-translator 按当下事实查"落点"，事实取自 `tick(snap, ctx, now)` 入参（S-1）——`ctx.following`+`ctx.visible` 为真→happy；`ctx.visible` 为假且未到 T1→calm；M1（`ctx.following` 恒假）→calm。**"是否跟随场景"由调用方经 `ctx.following` 传入，mood-translator 不直接读 FSM 状态/intention**（§3.3.4）。此后 confused/anxious 由 T1/T2 计时单调推进，calm→confused→anxious **不回退**（升级链由 FSM/规则作为低频来源经 translator 单向推进，mood-translator 不做反向降级）。
 4. **边沿触发不重入**：HOLDING 态再次收到 visible 上升沿（边界抖动）→ **忽略**，不重置 hold_deadline、不叠加新一轮。仅 IDLE 态的上升沿才进入 HOLDING。保持期内 visible 抖动只通过 `last_seen_ts` 影响 T1 基准（以最后一次去抖后的 false 起算），不影响 surprise。
 
 ### 3.6 任务层 FSM（M2 起）
@@ -260,12 +283,16 @@ FOLLOW 态移动中，心情**只走表情/眼睛/LED**；占用车轮的整段 
 
 随机游走：周期性生成随机的前进/转向原语（非固定路径），受悬崖反射约束。心情由认知/规则写入、mood-translator 翻译。悬崖反射在感知层内闭环，FSM 无需轮询悬崖即可保证安全（但 FSM 也会读 `cliff_detected` 决定恢复时机）。
 
+**curious 触发落点（M-A，本设计确定性来源之一）**：FREE_ROAM 每生成一段"探索性扫描"原语（原地慢转/头部转动张望，区别于直线前进）时，规则兜底（§3.8.3）给出 `mood=curious`，对应 PRD 第 5 节 curious 触发场景"发现新目标/扫描中"。该 mood 与 calm/playful 同走 §3.4「通过防抖窗口的最新有效来源」一档，受最短保持约束、不与 surprise 等即时心情冲突；下一段直线游走或进入其它状态时由后续来源覆盖。这样 curious 有确定性写入路径、不再是死分支。详细规则见 §3.8.3。
+
 #### 3.6.2 PLAY_CUBE（US2.2）
 
 进入条件：`cube.connected` 且 `intention=play_cube`（认知/规则给出；无认知时规则可周期性按概率选 play_cube）。
 - 点亮方块 LED：颜色/节奏随当前 mood（查 `moods/` 表）。
-- 监听 cube 事件：`tapped`/`moved` → 任务层**事件驱动直接触发**即时心情（happy/playful），1s 内切心情（§6.3 时延口径），**不经认知层**。
-- 退出：持续 `PLAY_CUBE_IDLE_TIMEOUT`（默认 12s）无 tapped/moved → 回 FREE_ROAM。
+- **监听 cube 事件（单调序号比对，M-B）**：PlayCube 在自己内存保存 `_last_tap_seq`/`_last_move_seq`（**任务层私有、不写黑板**）。每拍快照后比对：`cube.tap_seq > _last_tap_seq` → 识别到新拍击 → 触发即时心情 happy；`cube.move_seq > _last_move_seq` → 识别到新移动 → 触发即时心情 playful；处理后把私有计数**追平到当前序号**（序号差>1 表示跨拍漏读多次，按"最近一次事件"处理一次即可，不补播）。1s 内切心情（§6.3 时延口径），**不经认知层**。不再使用旧 `tapped`/`moved` bool（避免 30Hz 写/10Hz 读丢事件或重复触发）。
+- 退出（两条）：
+  - 持续 `PLAY_CUBE_IDLE_TIMEOUT`（默认 12s）无新 tap/move 事件（即 `tap_seq`/`move_seq` 在该窗口内无增长）→ 回 FREE_ROAM。
+  - **方块断连（S-7，US4.6）**：`cube.connected` 变 false → 立即退出 PlayCube 回 FREE_ROAM。方块断连**只影响 PlayCube 可用性、不触发整机重连**（整机重连仅针对 Cozmo 主连接，见 §6.2），Cozmo 主连接不受影响、继续运行。
 
 #### 3.6.3 FOLLOW / SEARCH（US3.1~US3.5）
 
@@ -275,7 +302,7 @@ FOLLOW 态移动中，心情**只走表情/眼睛/LED**；占用车轮的整段 
   - 自丢失起 > T2 → mood=anxious，加快/扩大搜索 + 黄/红 LED。
   - 去抖重见 → surprise（短暂保持）→ happy → 回 FOLLOW。
   - 自进入 anxious 起 > T3（默认 30s）仍未重见 → mood=calm，回 FREE_ROAM（US3.5）。
-- **T1/T2/T3 计时**：基于单调时钟。T1/T2 以 `last_seen_ts`（去抖下降沿）为基准；T3 以"进入 anxious 时刻"为基准。
+- **T1/T2/T3 计时（S-2，写死计算口径）**：基于单调时钟。**T1/T2 每拍用 `now - snap.person.last_seen_ts` 实时计算**，而非"进入某状态时锁定起点"——感知层每次去抖下降沿更新 `last_seen_ts`，任务层每拍据最新值实时比对，故 HOLD 期内 visible 抖动导致 `last_seen_ts` 被刷新时，T1/T2 自动以"最后一次去抖后的 false"为基准（与 §3.5 第 4 点、PRD US3.4「T1 以最后一次去抖后 false 起算」一致，无需额外冻结/重置逻辑）。T3 例外：以"进入 anxious 时刻"为基准（进入 anxious 时记一次单调时刻，此后实时比对 `now - anxious_enter_ts`）。
 
 ### 3.7 视觉伺服控制律（M3）
 
@@ -284,7 +311,8 @@ FOLLOW 态移动中，心情**只走表情/眼睛/LED**；占用车轮的整段 
 #### 3.7.1 转向律（US3.1）
 
 - **死区 + 迟滞**：`|cx_norm| ≤ TURN_DEADZONE`（默认 0.15）→ 不发转向指令（稳态判据，避免静止往复）。
-- 出死区后，转向角速度与 `cx_norm` 成比例（P 控制，比例系数可配置），并设速度上限。
+- 出死区后，转向角速度与 `cx_norm` 成比例（**纯 P 控制，无 I/D 项**，比例系数可配置），并设速度上限。
+- **采样率不匹配的鲁棒性（S-6）**：任务层 10Hz 消费感知层 ~15fps 的 cx/size，可能重复采样同一帧。**纯 P 控制对"快于感知层的重复采样"不敏感**（同一输入产生同一输出、无累积误差）；稳态依赖**死区 + 迟滞**而非积分项。**故意不加 D 项**——微分对重复采样会放大噪声（相邻两拍读到同帧时数值阶跃，D 项会算出虚假大速率）。距离律（§3.7.2）同理为分区+迟滞、无微分。
 - **迟滞**：进入死区与离开死区用不同阈值（离开阈值略大于进入阈值），防止边界抖动反复触发。
 - cx_norm 已在感知层做时间滤波平滑（§3.7.4）。
 
@@ -319,15 +347,20 @@ cx_norm / size_norm 在感知层做时间滤波（如指数滑动平均，系数
 ```python
 # cognition 对外统一接口（provider 无关）
 def decide(world_summary: dict, image: bytes | None = None) -> dict:
-    """返回 {"intention": <枚举>, "mood": <枚举>}；解析失败/非法枚举时返回 None。"""
+    """返回 {"intention": <枚举>, "mood": <枚举>}；字段级校验：合法字段保留，非法/缺失字段置 None。
+    两字段均非法/缺失时返回 {"intention": None, "mood": None}（等价整体未返回，走规则兜底）。"""
 ```
 
 - **运行模式**：事件驱动 + 低频轮询（每 1–2s 或关键事件），非每帧（US4.2）。
+- **线程模型**：在认知层**唯一常驻线程 C 内串行执行**（§7.1，S-4）——前一次决策未完成则跳过本次触发、不堆积、不另起子线程。
 - **thinking**：高频意图/心情决策关 thinking 求快；偶发复杂看图理解才开 thinking，多模态看图低频（≥5s 或关键事件），不与高频决策叠加（PRD 第 6 节，控 CPU/内存带宽，不抢 MediaPipe）。
 - **输入**：`world_summary`（黑板摘要：电池、是否见人/方块、当前 mood/intention、关键事件）+ 可选图像快照。
-- **输出处理**：模型返回 JSON → 解析 → 校验 intention/mood 是否合法枚举。
-  - 合法 → 写黑板 intention/mood + `cog_decision_ts`。
-  - 解析失败或非法枚举 → **等同模型未返回，走规则兜底，绝不写非法值**（US4.2）。
+- **多模态快照取帧（N-1 / CQ-1）**：可选图像快照**复用感知层"最新帧槽位"（§3.1.1）**，接受 320×240 灰度低质，零额外摄像头带宽、不抢 MediaPipe。**取帧走槽位锁、与感知层覆盖写互斥**（认知层在槽位锁内拷出当前帧引用即释放，不在锁内做编码/推理）。**本期多模态为可选辅助决策、不作硬验收**（PRD 已如此定义，无需回需求阶段）。
+- **输出处理（字段级校验、字段级兜底，S-10 / CQ-2）**：模型返回 JSON → 解析 → **对 intention、mood 各自独立校验是否合法枚举**：
+  - 某字段合法 → 采纳该字段，写黑板 + `cog_decision_ts`。
+  - 某字段解析失败/非法枚举/缺失 → **该字段单独走规则兜底**（合法的另一字段不受牵连，不整体丢弃）。
+  - 两字段都非法 → 等价"模型未返回"，整体走规则兜底，**绝不写非法值**（US4.2）。
+  > 粒度说明（CQ-2）：这是对 PRD US4.2「非法枚举不被采纳」的**实现细化**——把粒度细化到字段级（合法字段保留、非法字段走兜底），**不改变需求本意**（非法值一律不被采纳）。比"整体返回 None 丢弃合法 intention"更鲁棒、成本相同。
 
 > PRD 明确本期不依赖模型原生 function calling（US4.2 说明），以"模型输出 JSON 字段 → 任务层读取执行"实现。下述 function calling 工具集（PRD 构想第 7 节）作为**接口层语义定义**保留，第一阶段以 JSON 字段映射等价实现：`set_intention`/`set_mood` 等价于输出 JSON 的 intention/mood 字段；`get_world_state` 等价于把 world_summary 作为输入喂入；`play_animation` 不暴露给模型（动画下发是任务层职责，模型不直接控硬件）。这样 M4 后续若启用原生 function calling，可平滑切换而不改上层。
 
@@ -341,8 +374,11 @@ def decide(world_summary: dict, image: bytes | None = None) -> dict:
 
 - 看见人（visible 去抖=true）→ intention=follow。
 - 人丢 > T1 → confused / 意图 search_person；> T2 → anxious。
-- 低电量 → stop。
+- **低电量 → intention=stop**（S-8：低电量是状态量、非瞬时安全事件，统一归规则兜底处理，**不在 §6.1 安全反射内**；§6.1 安全反射只保留悬崖/碰撞两类真正瞬时事件，两处口径已对齐，不再重复"低电量停车"）。
 - 自由活动默认 → free_roam，并可周期性按概率选 play_cube（cube.connected 时）。
+- **探索扫描 → mood=curious（M-A）**：FREE_ROAM 处于"探索性扫描"原语（原地慢转/头部张望，§3.6.1）期间，规则兜底写 `mood=curious`，落实 PRD 第 5 节 curious 触发"发现新目标/扫描中"。这是 curious 在 M1~M3 的**唯一确定性写入路径**；M4 接入后认知层亦可按场景写 curious，与规则兜底走同一 mood 字段、同一仲裁（§3.4）。
+
+> curious 触发归属说明（M-A，闭合"七种心情未闭环"）：本设计选**规则兜底（FREE_ROAM 扫描动作）**作为 curious 的确定性落点，而非"SEARCH 进入瞬间给 curious 再转 confused"——后者会与 PRD US3.4「进入 SEARCH 即 confused」的明确语义打架（SEARCH 是"丢人着急找"，给 curious 语义不符）；FREE_ROAM 探索扫描才契合 PRD curious 触发场景"发现新目标/扫描中"。此落点自 M2 规则兜底就位即生效（FREE_ROAM 属 M2），M1 无 FREE_ROAM 故 M1 不触发 curious（M1 只有 surprise/calm，与 §8 里程碑表一致）。
 
 规则兜底**自 M2 起就独立可跑**（M2~M3 全程用规则跑通），M4 才叠加 Gemma；模型返回且未 stale 时覆盖规则结果（仲裁见 §3.4，安全反射永不可覆盖）。
 
@@ -374,11 +410,14 @@ person = {
     "last_seen_ts": float,      # 单调时钟，最近一次稳定可见时刻，M1 起
 }  # 或整体为 None（从未见过人时）
 
-cube = {                        # 感知层单写
+cube = {                        # 感知层单写，整体原子替换
     "connected": bool,
-    "tapped": bool,             # 加速度计，瞬时事件（消费后清）
-    "moved": bool,
+    "tap_seq": int,             # 拍击事件单调自增序号（感知层单写、永不清零）；任务层比对识别新事件
+    "move_seq": int,            # 移动事件单调自增序号（同上）
 }  # 或 None
+# 说明（M-B）：tap_seq/move_seq 取代旧 tapped/moved bool。感知层每发生一次拍/移动 +1、永不清零、
+#   随 cube 整体原子替换；任务层(PlayCube)在自己内存保存 _last_tap_seq/_last_move_seq（私有、不写黑板），
+#   每拍比对 cube.tap_seq > _last_tap_seq 识别新事件，处理后追平。跨 30Hz 写/10Hz 读不丢不重，单写者保持。
 
 # 标量/枚举字段
 cliff_detected: bool            # 感知层单写，驱动安全反射
@@ -410,9 +449,15 @@ FSM_STATE = {"FREE_ROAM", "PLAY_CUBE", "FOLLOW", "SEARCH"}   # 状态机状态�
 |---|---|
 | 单写者 | 每个字段只有注明的那一层写（见 §4.1）；评审/代码组织上强制（写方法按层分组，禁止越层写） |
 | 整体原子替换 | 复合字段（person/cube）以**不可变对象整体替换引用**：写者构造好完整新对象，一次赋值替换旧引用（引用赋值原子）；读者拿到的要么是旧完整对象、要么是新完整对象，永不读到半更新中间态 |
-| 周期快照 | 黑板提供 `snapshot()`：在锁内一次性拷贝当前所有字段引用，返回一个不可变快照；任务层每周期先 `snapshot()` 再决策，整周期内字段一致（不会一周期内字段彼此打架） |
+| 周期快照 | 黑板提供 `snapshot()`：在**同一把锁的同一临界区内**一次性拷贝当前所有字段引用，返回一个不可变快照；任务层每周期先 `snapshot()` 再决策，整周期内字段一致（不会一周期内字段彼此打架） |
 
-**锁粒度**：黑板内部一把读写锁（或对每字段引用赋值依赖 GIL/原子引用 + snapshot 时短临界区拷贝）。因 person/cube 已是"整体替换"，写临界区极短（只换引用），快照临界区只做浅拷贝引用，锁竞争小。
+**两条强制并发约束（M-D，澄清快照一致性，删去原"或依赖 GIL"二义）**：
+
+1. **复合对象构造后即不可变**：`person`/`cube` 一经构造视为**不可变（immutable）**——写者每次必须构造**全新 dict** 再整体替换引用，**绝不复用旧 dict 做 in-place 增量修改**；读者拿到后**绝不 in-place 改任何 key**（如需派生值在任务层私有变量里算）。代码层用 `MappingProxyType` 包裹或 frozen dataclass **强制**只读，不只靠约定。理由：仅"替换引用原子"不足以保证不可变——若替换后对象仍被任一方就地改，会破坏"读者要么读到旧完整对象、要么读到新完整对象"的契约。
+
+2. **所有 `set_*` 与 `snapshot()` 一律走同一把 `threading.Lock`**：不再保留"或依赖 GIL/原子引用"的备选。`snapshot()` 必须在该锁的临界区内一次性拷贝**全部字段引用**（person/cube/cliff/battery/mood/intention/各 ts 等），保证任务层永不拿到"person 新值但 mood 旧值"的撕裂快照。因 person/cube 已是"整体替换"，写临界区只换引用、快照临界区只做浅拷贝引用，临界区仍极短，锁竞争与性能无忧。
+
+> 这两条同时也是 §1.3 决策 2「单写者 + 整体原子替换 + 周期快照」的精确化：单写者保证无写写冲突，同一把锁的临界区快照保证读到的是一致的整快照，不可变保证快照内容不被事后篡改。§7.1 并发模型据此表述统一为"同一把锁 + 不可变对象整体替换 + 快照"，全文无"或依赖 GIL"残留。
 
 ```python
 class Blackboard:
@@ -520,12 +565,18 @@ class HalInterface:                 # 抽象接口，上层只依赖它
     # 传感器/事件回调（HAL→感知层）
     def on_camera_frame(self, callback) -> None: ...  # 覆盖式最新帧
     def on_cliff(self, callback) -> None: ...         # 驱动安全反射
-    def on_cube_event(self, callback) -> None: ...    # tapped/moved/connected
+    def on_cube_event(self, callback) -> None: ...    # 拍/移动/连接事件 → 感知层据此自增 tap_seq/move_seq、维护 connected
     def read_battery(self) -> float: ...
 
 class PycozmoHal(HalInterface): ...   # 真实实现，封装 pycozmo
 class MockHal(HalInterface): ...      # 测试实现，喂假帧/假事件，断言下发指令
 ```
+
+**HAL 行为契约（三条强约束，被 §6.1/§6.2/§7.1 引用）**：
+
+1. **悬崖硬闸（安全保证 · M-C）**：HAL 内维护 `_cliff_active`（`on_cliff` 回调置位、悬崖解除清零）。`drive_wheels()` 入口判断 `_cliff_active` 为真时**直接 no-op**（或仅放行后退方向，供 CLIFF_BACKOFF 脱离）。此为 US4.4「任何上层目标都不能覆盖此反射」的硬件级最后防线，约 5 行，详见 §6.1。
+2. **非阻塞下发（D-3 前置）**：所有下发类方法（`play_animation`/`drive_wheels`/`set_face`/`set_*_led` 等）为**异步提交（fire-and-forget）、不阻塞调用线程**。整段 `.bin` 动画的下发不得卡住任务层 10Hz 周期。若 pycozmo 原生调用阻塞，则 HAL 内部用**下发队列 + 自有消化线程**异步执行，对外接口立即返回。这是"单任务层线程即可满足 10Hz、无需为 mood 单开线程"（§7.1、原 D-3）的前提。
+3. **断连 no-op（S-5）**：连接断开状态下，所有下发类方法为**安全 no-op、不抛异常**。调用方（§6.1/§6.2）无需各自包 try/except，断连后的"安全停车"调用幂等无害。
 
 **Mock 测试策略**：
 - MockHal 可注入预制摄像头帧序列（含/不含人）→ 驱动感知层去抖、surprise、视觉伺服的单元/集成测试，无需实体 Cozmo。
@@ -567,10 +618,15 @@ main.py --demo follow    # M3：+ FOLLOW/SEARCH 视觉伺服 + 丢人情绪
 
 ### 6.1 安全反射（US4.4，感知层内闭环）
 
+> 范围界定（S-8）：安全反射只含**真正的瞬时安全事件——悬崖、碰撞**。低电量**不是**瞬时安全事件，归**规则兜底**处理（任务层 intention=stop，见 §3.8.3），不在本节安全反射内。两处口径统一，避免"低电量停车"在安全反射与规则兜底重复出现。
+
 - **触发**：HAL 的 `on_cliff` 回调（悬崖）、碰撞/急停姿态。回调运行在感知层线程上下文。
 - **动作**：回调内**直接** `hal.stop_wheels()`，不写黑板等上层、不经 FSM/认知层。随后置 `cliff_detected=true` 供上层观测与恢复决策。
 - **悬崖后退（US2.1，可选）**：停车后可执行小幅后退脱离，距离 ≤ `CLIFF_BACKOFF_MAX`（默认 20mm）；后退方向无传感器覆盖，若该方向也触发悬崖则立即再停、不再后退。
-- **不可绕过**：任何上层 mood/intention/伺服指令都不能覆盖停车。仲裁上"安全反射 > 规则 > 模型"在此落地——上层下发的 drive_wheels 在 cliff_detected 期间被 HAL/感知层拦截或上层据 cliff_detected 自行不下发（设计选定：上层读 cliff_detected 暂停下发 + 反射已停轮双保险）。
+- **不可绕过（双层防护，明确各自语义）**：任何上层 mood/intention/伺服指令都不能覆盖停车。落实 US4.4「任何上层目标都不能覆盖此反射」，分两层：
+  - **第一层（安全保证 · 必选）= HAL 内硬闸**：HAL 维护内部标志 `_cliff_active`（`on_cliff` 回调置位、悬崖解除时清零），`drive_wheels()` 入口判断 `_cliff_active` 为真时**直接 no-op**（或仅放行后退方向，用于 CLIFF_BACKOFF 脱离）。约 5 行硬闸，成本可忽略。这是关闭竞态窗口的**最后防线**——感知层回调线程停轮后，即便任务层线程（10Hz）下一拍才读到 `cliff_detected` 并在其间误下发 `drive_wheels`，也被 HAL 硬闸拦截，不会覆盖刚停的轮速。把硬件保护放在最贴近硬件的 HAL 层，语义上最合理。
+  - **第二层（性能优化 · 非安全保证）= 上层据 cliff_detected 暂停下发**：任务层读到 `cliff_detected` 后主动不下发驱动指令，**减少无效下发**（避免每拍都触发 HAL 硬闸 no-op）。此层仅为性能/清洁优化，**安全性不依赖它**——它有竞态窗口（如上所述），安全完全由第一层 HAL 硬闸保证。
+- 设计取舍：原"双保险均为安全保证"的表述（旧 D-1）已收敛为"HAL 硬闸是唯一安全保证、上层暂停下发降为性能优化"，消除"纯靠上层自觉无法关闭竞态窗口"的隐患（D-1→采纳）。HAL 接口契约见 §5.1。
 
 ### 6.2 断连与重连恢复（US4.6）
 
@@ -587,15 +643,18 @@ hal.on_disconnect 触发
 
 - 重连不要求恢复中断前精确状态（PRD 允许回 FREE_ROAM 或重新进跟随）。
 - 模型不可达由 §3.8.3 规则兜底处理，与底层断连互不替代（US4.6 说明）。
+- **断连状态下的下发安全（S-5）**：上述 `stop_wheels()` 等指令在连接已断时下发会失败/抛异常。落实方式见 §5.1 HAL 契约——**连接断开状态下所有下发类方法（drive_wheels/stop_wheels/play_animation/set_*_led 等）为安全 no-op、不抛异常**。因此本节及 §6.1 的调用方无需各自包 try/except，断连后的"安全停车"调用是幂等无害的。
+
+**方块（cube）断连（US4.6 覆盖"Cozmo 或方块连接中断"）**：方块断连**只影响 PlayCube 可用性，不触发整机重连**（整机重连仅针对 Cozmo 主连接）。感知层把 `cube.connected` 置 false；若当前处于 PLAY_CUBE 状态，FSM 据此退出 PlayCube 回 FREE_ROAM（见 §3.6.2 退出条件）。Cozmo 主连接不受影响、继续运行。
 
 ### 6.3 时延口径与并发边界
 
-- **"1s 内切心情"口径**（US2.2/US2.3）：从黑板事件写入（tapped 置位/mood 更新）到对应动画开始播放 ≤ 1s（软件内部可保证项）。端到端（含方块无线电上报）尽力而为，目标 ≤ 1.5s，不作硬验收。
+- **"1s 内切心情"口径**（US2.2/US2.3）：从黑板事件写入（cube `tap_seq`/`move_seq` 自增 / mood 更新）到对应动画开始播放 ≤ 1s（软件内部可保证项）。端到端（含方块无线电上报）尽力而为，目标 ≤ 1.5s，不作硬验收。
 - **surprise 两个 1.5s**：`surprise_response_latency`（visible 翻转→开始播 surprise 表现的响应时延上限）与 `surprise_hold`（surprise 进入后最短保持）物理含义正交、各自可配、默认同值、互不联动（§4.4 两个独立配置项落实）。
 - **幂等/防重复下发**：mood-translator 最短保持期内不重复下发同一心情整段动画（§3.3.2）；视觉伺服死区/区间内不发指令（§3.7），天然防抖动。
-- **cube 瞬时事件消费**：tapped/moved 为瞬时事件，任务层消费后清标志（写者感知层置位、读后由约定机制清零，避免重复触发）。
+- **cube 瞬时事件消费（单调自增序号，M-B / D-2→采纳）**：tapped/moved 不再用"置位—清零"的 bool（30Hz 写 / 10Hz 读跨周期必然丢事件或重复触发），改为**感知层单写、单调递增、永不清零的事件序号** `cube.tap_seq` / `cube.move_seq`（每发生一次拍/移动 +1）。任务层（PlayCube）在自己内存保存 `_last_tap_seq` / `_last_move_seq`（**任务层私有、不写黑板**，单写者契约完整保持），每拍比对——`cube.tap_seq > _last_tap_seq` 即识别到新拍击事件，处理后把私有计数追平。这样跨 30Hz/10Hz 既不丢事件（序号差可一次性补齐多次事件）也不重复触发，且感知层仍是 cube 的唯一写者。
 
-> 注：tapped/moved 的"置位—消费—清零"跨越感知层（写者）与任务层（读者），与「单写者」契约存在张力，是 §10 列出的待确认设计点 D-2。
+> 此机制同时消除了旧设计「置位—消费—清零」与「单写者=感知层」的张力（原 §10 待确认点 D-2 已采纳为本机制并落入 §4.1 黑板契约）。
 
 ---
 
@@ -603,10 +662,11 @@ hal.on_disconnect 触发
 
 ### 7.1 并发模型（三层不同周期调度）
 
-- **线程划分**：感知层线程 A（~30Hz / 帧回调驱动）、任务层线程 B（~10Hz 定时）、认知层线程 C（秒级 / 事件，M4 起）。HAL 的 pycozmo 回调在其自身 I/O 线程，经覆盖式槽位 + 黑板与三层解耦。
-- **周期实现**：B 用固定步长循环（每拍 ~100ms，先 snapshot 再决策再下发）；A 由帧回调驱动 + 自身节流到 ~30Hz；C 用定时器/事件触发，决策走子线程不阻塞 B。
-- **线程安全**：全部跨线程状态经黑板（§4.2 锁 + 原子替换 + 快照）；HAL 下发指令线程安全（pycozmo 调用经 HAL 串行化或其内部队列）。
-- **不阻塞实时环**：认知层 Gemma 推理可能数百 ms~秒级，运行在线程 C，**绝不阻塞 A/B**；任务层只读黑板里"已就绪"的 intention/mood（带 stale 校验），从不等模型（US4.1/US4.2）。
+- **线程划分（定死，S-4）**：感知层线程 A（~30Hz / 帧回调驱动）、任务层线程 B（~10Hz 定时）、**认知层 1 个常驻线程 C**（秒级 / 事件，M4 起）。HAL 的 pycozmo 回调在其自身 I/O 线程，经覆盖式槽位 + 黑板与三层解耦。
+- **周期实现**：B 用固定步长循环（每拍 ~100ms，先 snapshot 再决策再下发）；A 由帧回调驱动 + 自身节流到 ~30Hz；**C 用定时器/事件触发，在其常驻线程内部串行执行决策——前一次决策未完成则跳过本次触发、不堆积（无嵌套子线程）**。删去旧表述"决策走子线程"的二义：认知层不再为每次决策另起子线程，只有 C 这一个常驻线程；它本身就独立于 A/B，故 Gemma 推理慢也不阻塞 A/B。
+- **线程安全**：全部跨线程状态经黑板（§4.2 同一把锁 + 不可变对象整体替换 + 快照）；HAL 下发指令线程安全（pycozmo 调用经 HAL 串行化或其内部队列，见 §5.1 非阻塞下发契约）。
+- **不阻塞实时环**：认知层 Gemma 推理可能数百 ms~秒级，运行在常驻线程 C，**绝不阻塞 A/B**；任务层只读黑板里"已就绪"的 intention/mood（带 stale 校验），从不等模型（US4.1/US4.2）。
+- **MediaPipe 与 GIL 争用风险（前置标注，S-3）**：MediaPipe Pose 是进程内 C 扩展，跑在感知层线程 A。其推理是否在 GIL 外执行**尚未论证**——若某段不释放 GIL，每帧几十 ms 会周期性占住解释器，导致任务层 B 的 10Hz 周期抖动。**验证项（M1 实测）**：以感知层逐帧耗时日志（§3.1.3）+ 任务层周期抖动日志佐证，确认 Pose 推理是否在 GIL 外执行、B 周期是否稳定。**退路（不现在改架构）**：若 GIL 争用致 B 周期不稳，把 Pose 推理移到独立子进程，仅回传 visible/cx/size 等小结果（小数据量 IPC，不传整帧）。当前阶段仅前置标注此风险与退路，架构不预先改动。
 
 ### 7.2 资源与可观测（PRD 第 6 节）
 
@@ -631,6 +691,8 @@ hal.on_disconnect 触发
 
 **演进保证**：黑板 person「整体原子替换」契约 M1 即成立，M3 只填子字段；mood-translator 接口贯穿 M1→M4 不变；VisibleDebouncer M1 定型 M3 复用；规则兜底先于模型，M4 叠加不推翻。落地顺序 M1→M2→M3→M4。
 
+**任务层循环结构约束（S-9，杜绝 M1 一套、M2 推翻重写）**：M1 任务层"极简循环"**就是 M2 任务层线程 B 的入口骨架**——同一线程入口、同一"每拍先 `snapshot()` 再决策再经 HAL 下发"的循环框架。M2 仅在该循环内**增加 `FSM.tick()`**（FREE_ROAM/PLAY_CUBE/FOLLOW/SEARCH 迁移与行为原语），**mood-translator 调用点不变**（M1 即每拍 `mood_translator.tick(snap, ctx, now)`，M2 只是把 `ctx.following` 等由 FSM 据自身状态填实）。M3 在同一循环里再叠加视觉伺服控制律。三者都是"往同一循环里塞模块"，非另起循环、非推翻 M1 入口。
+
 ---
 
 ## 9. 技术选型与权衡
@@ -638,7 +700,7 @@ hal.on_disconnect 触发
 | 决策点 | 选型 | 替代方案 | 取舍理由 |
 |---|---|---|---|
 | 进程模型 | 单进程多线程 | 多进程 + IPC | 黑板高频共享，进程内共享内存+锁成本远低于 IPC 序列化；MediaPipe/pycozmo 进程内库；Gemma 已经 Ollama 跨进程 |
-| 黑板并发 | 整体原子替换 + 周期快照 + 单写者 | 字段级细粒度锁 / 无锁队列 | 直接满足 PRD 契约；复合对象整体替换使写临界区极短；快照保证任务层整周期一致 |
+| 黑板并发 | 单写者 + 不可变对象整体替换 + 同一把锁内周期快照 | 字段级细粒度锁 / 无锁队列 / 依赖 GIL | 直接满足 PRD 契约；同一把锁保证整快照一致（无撕裂）、不可变保证快照不被事后篡改（M-D）；复合对象整体替换使临界区极短，不取"依赖 GIL"是因其不能保证多字段整快照一致 |
 | 帧管线 | 覆盖式最新帧槽位（丢旧帧） | 帧队列 | 低帧率设备宁丢帧不排队，避免时延累积；跟随容忍滞后 |
 | surprise 同级事件处理 | 丢弃（非延后） | 延后到 HOLD 结束 | 瞬时事件延后已过期、易违和；丢弃实现最简无需队列（PRD 允许二选一） |
 | 重连恢复 | 统一回 FREE_ROAM，由去抖路径接管 | 重连瞬间直接进 FOLLOW | 复用既有去抖→跟随路径，避免恢复特例，简化逻辑（PRD 允许由设计定） |
@@ -655,26 +717,15 @@ hal.on_disconnect 触发
 - Gemma 结构化输出成熟度（最大不确定项）→ 解析失败/非法枚举走兜底（§3.8.1），M4 实测验证。
 - 本地模型资源峰值、pycozmo 稳定性、动画名待选定 → 见 §7.2 / §6.2 / §4.3。
 
-### 开放问题（请评审与路由）
+### 原开放问题 —— 已随 developer 评审闭合（备查）
 
-**【设计疑问·待确认】D-1 安全反射停车的拦截层落点**
-- 是什么：安全反射停轮后，上层若仍在下发 drive_wheels，如何确保不被覆盖？本设计采取"双保险"——感知层反射 stop_wheels + 上层读 cliff_detected 暂停下发。
-- 为什么：纯靠"上层自觉读 cliff_detected 不下发"有竞态窗口（反射停轮后、上层下一拍前若已下发指令）；是否需要在 HAL 层加一道"cliff_detected 期间拦截 drive_wheels"的硬闸更稳妥。
-- 倾向建议：倾向在 HAL 内加轻量硬闸（cliff_detected 为真时 drive_wheels 变 no-op），作为最后防线，与上层自觉双保险。请评审确认是否接受 HAL 承担这点安全语义（HAL 本应是薄封装，加此逻辑略增其职责）。
+v1 草案的四个开放问题（D-1/D-2/D-3/N-1）已在本轮（v2）经 developer 评审拍定并落盘，结论如下，不再悬空：
 
-**【设计疑问·待确认】D-2 cube 瞬时事件（tapped/moved）的"置位—消费—清零"与单写者契约**
-- 是什么：tapped/moved 由感知层置位、任务层读取后需清零以防重复触发，但"清零"是对感知层字段的写，与「cube 单写者=感知层」存在张力。
-- 为什么：若任务层清零则破坏单写者；若感知层自行按"上报一次即清"则任务层可能漏读（10Hz 任务层与 30Hz 感知层周期不齐）。
-- 倾向建议：倾向把瞬时事件设计为"感知层维护一个自增事件序号/边沿计数，任务层记录上次消费的序号，靠比对消费"——感知层仍是唯一写者，任务层只读不写，靠序号差识别新事件，彻底规避清零写冲突。请评审确认该机制是否纳入黑板契约。
+| 原编号 | 闭合结论 | 落盘章节 |
+|---|---|---|
+| **D-1** 安全反射拦截层落点 | 采纳=**M-C**：HAL 内 `_cliff_active` 硬闸为**唯一安全保证**（`drive_wheels()` 入口 no-op，或仅放行后退）；上层据 `cliff_detected` 暂停下发**降为性能优化**（非安全保证）。消除"纯靠上层自觉"的竞态窗口。 | §6.1、§5.1 契约 1 |
+| **D-2** cube 瞬时事件消费机制 | 采纳=**M-B**：改用感知层单写、单调自增、永不清零的 `cube.tap_seq`/`move_seq`；任务层私有 `_last_*_seq` 比对识别新事件。彻底消除"置位—清零"与单写者张力，跨 30Hz/10Hz 不丢不重。 | §4.1、§3.6.2、§6.3 |
+| **D-3** 任务层线程数 | 采纳"不为 mood 单开线程"，**前置必须落实**：§5.1 契约 2「play_animation 等下发为异步提交（fire-and-forget）、不阻塞调用线程；pycozmo 原生阻塞则 HAL 内部用下发队列+消化线程」。单任务层线程即满足 10Hz。 | §5.1 契约 2、§7.1 |
+| **N-1**（=CQ-1）多模态快照画质 | 按默认采纳：复用感知层最新帧槽位、接受 320×240 灰度低质，取帧走槽位锁与感知层覆盖写互斥；**本期多模态为可选辅助、不作硬验收**（PRD 已如此定义，无需回需求阶段）。 | §3.8.1 |
 
-**【设计疑问·待确认】D-3 任务层线程数（伺服控制 vs 心情翻译是否同拍）**
-- 是什么：M3 视觉伺服（转向/距离，需要稳定 ~10Hz）与 mood-translator（计时/翻译）是否同一任务层线程顺序执行。
-- 为什么：mood-translator 下发整段动画可能耗时（HAL 调用），若与伺服同拍，动画下发会拖慢伺服周期，影响转向跟随的实时性。
-- 倾向建议：倾向同一线程但严格区分——移动期 mood 只走表情/LED（轻量、§3.3.3），整段轮式动画只在非移动期下发；HAL 动画下发本身设计为非阻塞（提交即返回）。如此可单线程满足 10Hz。请评审确认无需为 mood 单开线程。
-
-**【需求澄清·待 PM 确认】N-1 多模态看图快照的来源帧与对 MediaPipe 的影响**
-- 是什么：认知层低频（≥5s）多模态看图需要一张摄像头快照。该快照是复用感知层"最新帧槽位"（§3.1.1），还是另取一帧？
-- 为什么：复用槽位最省（不额外占摄像头带宽），但快照是低分辨率灰度（320×240），对 Gemma 看图理解的有效性 PRD 未明确；若需更高质量帧则需 HAL 额外能力。本期多模态是"可选"。
-- 倾向建议：倾向复用感知层最新帧槽位（零额外成本、不抢 MediaPipe），接受低质快照——本期多模态仅"可选辅助决策"，不作硬验收。请 PM 确认这一理解与 PRD「低频抓一张摄像头快照」一致、无更高画质期望。
-
-> 以上未决问题不影响 M1/M2/M3 主链路落地（D-1/D-2 仅在 M2 安全/玩方块路径需先定，D-3 在 M3 前需定，N-1 在 M4 前需定）。我已按倾向建议给出默认实现方向，评审确认或推翻后我会据此更新文档。
+> 本轮 developer 评审的 4 条必须改（M-A curious 触发、M-B cube 序号、M-C HAL 硬闸、M-D 快照一致性）与 10 条建议改（S-1~S-10）已全部处理并落盘，文档无遗留待确认设计疑问；M1/M2/M3 主链路与 M4 接口均可据本文实现。
