@@ -1,5 +1,6 @@
 # Cozmo「跟人走」第一阶段 —— 需求定义文档（PRD）
 
+> 状态：v8 —— 纯文字订正：修正终轮全局复审发现的悬空引用编号 C-1（四处"第 12.2 节 A-4/A-6/A-8"订正为对应的"Q4/Q6/Q8"，A 系编号为架构师答复内部编号、不应出现在文档中）与计数笔误 C-2（Q7 标题"补三点时序边界"订正为"补四点时序边界"，与其下四点正文及 US4.3/第 7 节一致），**无任何需求语义改动**。以下沿用 v7。
 > 状态：v7 —— 已吸收架构师对 v6（本轮 scope 重划版）的评审：**结论为无【必须改】、本轮 scope 重划技术与架构上成立**。本版逐条采纳 4 条【建议改】(S-9~S-12) 与对 5 个技术疑问 Q4~Q8 的逐条答复（架构师全部确认 PM 倾向并附加约束）：补 surprise 时序边界（HOLD 与 T1 交叠、空窗心情归属=calm、HOLD 期内边沿不重入、同层即时心情遇 HOLD 处理）于 US4.3/US1.3；引入并统一 **mood-translator（心情翻译/计时单元）** 命名（归任务层职责、是 mood 合法写者、非完整 FSM）于 US1.3/第 7 节/术语表；感知层逐帧耗时与达成帧率纳入 US4.5（落 US1.2 与 M1 验收）；心情表 surprise 行补退出指针；M1 验收补 surprise→calm 可观测锚点（日志）；两个 1.5s 加澄清。v6 之前（含 v5/v4）已落地的用户拍板 Q1/Q2/Q3、scope 重划、M-/S-/G- 约束、Out of Scope、黑板并发契约、M3 既有跟随/搜索/丢人验收、七种心情三处一致均保持不变。Q4~Q8 已在第 12.2 节标注为"已架构师确认"并写明结论与落实章节。
 > 来源构想：`docs/ideas/follow-me-idea.md`
 > 平台：Mac mini（Apple Silicon / 32GB）+ 实体 Cozmo，底层 [pycozmo](https://github.com/zayfod/pycozmo)
@@ -86,7 +87,7 @@ Cozmo 原厂 App 不可用，改用 pycozmo 作为底层引擎。pycozmo 只提�
 - Then 仅产出 `person.visible`（bool）这一级结果并写入黑板；**本里程碑不计算 `cx_norm`（转向居中）与 `size_norm`（距离估计），不做转向、不做前进/后退、不做持续跟随**——完整视觉伺服属 M3。
 - And `person.visible` 的"出现/消失"均经多帧确认去抖（连续 `VISIBLE_ON_FRAMES`/`VISIBLE_OFF_FRAMES` 帧判定，默认各 3 帧、可配置；判定口径同 US3.6），单帧漏检/误检不翻转 visible。
 - And 该检测在 `--demo connect` 中可直接观察（visible 的真假变化经结构化日志输出，见 US4.5）。
-- And **感知层逐帧处理耗时与达成帧率经 US4.5 结构化日志输出**（M1 无 Gemma，"可观测"下沉到感知层自身帧处理性能），作为 visible 去抖窗口/时延阈值联调调参（见第 12.2 节 A-6）的数据来源；与 Out of Scope（图形面板后置）不冲突。
+- And **感知层逐帧处理耗时与达成帧率经 US4.5 结构化日志输出**（M1 无 Gemma，"可观测"下沉到感知层自身帧处理性能），作为 visible 去抖窗口/时延阈值联调调参（见第 12.2 节 Q6）的数据来源；与 Out of Scope（图形面板后置）不冲突。
 - 说明：M1 不要求多人选择规则（多人选最近者属跟随场景，留待 M3 的 US3.6）；M1 只需回答"画面里有没有人"。
 - 说明（感知层输出结构，预留 M3 扩展点）：M1 的 MediaPipe 调用已拿到完整 pose landmark（visible 判定本就依赖 landmark 检出），只是 M1 不从 landmark 计算 cx/size；M3 仅在同一帧 landmark 上增算 `cx_norm`/`size_norm`，不改感知层帧获取与调用结构。功能设计阶段应把"感知层输出对象"设计为可承载子字段的复合结构（M1 时 cx/size 为 None/不写），M3 仅填充子字段，使黑板 `person` 复合对象"整体原子替换"契约（US4.1）在 M1/M3 都成立。
 
@@ -105,7 +106,7 @@ Cozmo 原厂 App 不可用，改用 pycozmo 作为底层引擎。pycozmo 只提�
 - And **边沿触发，保持期内不自我重入（与 US4.3 联动）**：surprise 由 `person.visible` 的 **false→true 上升沿**触发；进入 `SURPRISE_HOLD` 最短保持期内，即便因边界抖动发生新的 false→true 上升沿（如保持期内 visible 二次翻转），也**只延续当前这一轮 surprise、不重置计时、不叠加成新一轮**。保持期内的 visible 抖动只影响丢人 T1 计时基准（以最后一次去抖后的 false 起算 T1，见 US3.4），不影响 surprise 本身。
 - And **保持与退出（务必与 happy 不冲突）**：surprise 进入后至少保持 `SURPRISE_HOLD`（默认 1.5s，可配置）；最短保持结束后，按**单调升级链**确定落点（无往复）：① 人仍可见且处于跟随场景 → 降级到 **happy**（表示"找到人"的开心，对应 M3）；② 人已不可见且尚未到 T1（HOLD 结束的"空窗"）→ 降级到 **calm**；③ 此后人持续不可见，T1 到 → confused、T2 到 → anxious（按 US3.4 单调升级，calm→confused→anxious 不回退）。M1 单独演示无跟随能力/无跟随意图时，HOLD 结束后落点即 **calm**（回到平静/待机）。
 - And **最短保持期内不被同级即时心情打断、不冻结 T1（与 US4.3 联动）**：surprise 与其它事件即时心情（被拍触发 happy/playful）同属一层；`SURPRISE_HOLD` 期内若到达同级即时事件，surprise **不被同级打断**（同级事件的丢弃或延后到 HOLD 结束二选一，由功能设计定其一）；最短保持期内**不冻结丢人 T1 计时**——T1 基于去抖后 visible 由 true→false 时刻起算（US3.4），与 surprise 是否仍在 HOLD 无关；安全反射（悬崖/碰撞/低电量）始终可打断 surprise。
-- 说明（M1 由 mood-translator 承载，归任务层职责、非完整 FSM）：M1 单独演示时尚无完整任务层 FSM，"surprise 心情→惊讶动画/表情/LED 的翻译 + `SURPRISE_HOLD` 计时 + 降级"由一个**极小的心情翻译/计时单元（mood-translator，术语见第 10 节）**承载。该单元**归任务层职责**（按第 11 节契约，mood 的合法写者是"任务层/认知层"，**不含感知层**，故它属任务层一侧、是 mood 的合法写者），但**不是完整任务层 FSM**——不持有状态机状态、不读写 `intention`。其工作链路为：读 `person.visible` 上升沿 → 置 `mood=surprise` → 计时 `SURPRISE_HOLD` → 到期按上文落点降级（M1 写 `mood=calm`）→ 把 mood 翻译为动画/表情/LED 经 HAL 下发。M2 时它自然成长为完整任务层的 mood 翻译子模块（增量演进、不被推翻）。其在三层中的就位形态见第 7 节里程碑表与第 12.2 节 A-4/A-8（已架构师确认）。
+- 说明（M1 由 mood-translator 承载，归任务层职责、非完整 FSM）：M1 单独演示时尚无完整任务层 FSM，"surprise 心情→惊讶动画/表情/LED 的翻译 + `SURPRISE_HOLD` 计时 + 降级"由一个**极小的心情翻译/计时单元（mood-translator，术语见第 10 节）**承载。该单元**归任务层职责**（按第 11 节契约，mood 的合法写者是"任务层/认知层"，**不含感知层**，故它属任务层一侧、是 mood 的合法写者），但**不是完整任务层 FSM**——不持有状态机状态、不读写 `intention`。其工作链路为：读 `person.visible` 上升沿 → 置 `mood=surprise` → 计时 `SURPRISE_HOLD` → 到期按上文落点降级（M1 写 `mood=calm`）→ 把 mood 翻译为动画/表情/LED 经 HAL 下发。M2 时它自然成长为完整任务层的 mood 翻译子模块（增量演进、不被推翻）。其在三层中的就位形态见第 7 节里程碑表与第 12.2 节 Q4/Q8（已架构师确认）。
 - And **M1 可观测验收锚点（surprise→calm 可见，S-10）**：M1 无跟随、无 FSM，为使"降级到 calm"在 demo 中可验收，验收依据为：mood 由 surprise→calm 的切换经 US4.5 结构化日志打印对应条目（与 US4.5"心情切换有日志条目"一致）。**可选增强**：降级到 calm 时下发可见的 calm 待机表现（眨眼/待机表情）。
 
 ### 4.2 步骤二：自由活动 + 玩方块
@@ -313,7 +314,7 @@ Cozmo 原厂 App 不可用，改用 pycozmo 作为底层引擎。pycozmo 只提�
 
 落地顺序建议：M1 → M2（先用规则兜底跑通）→ M3 → 全面接入 M4。即使第一阶段就接入认知模型，也先保证规则兜底能独立跑通再叠加 Gemma。
 
-> 关于三层架构/感知层的就位时机（**已架构师确认，见第 12.2 节 A-4/A-8，结论固化如下**）：M1 引入人体识别（感知层）后即需用到感知层与黑板最小子集（至少写 `person.visible`/`person.last_seen_ts`/`battery`/`mood`）。**M1 采用轻量形态**：感知层（最小 visible 管线）+ 黑板最小子集 + HAL + **一个极小心情翻译/计时单元（mood-translator）**承载 surprise→保持→calm 的心情通路；**不要求完整任务层 FSM、不要求认知层**（完整任务层 FSM 留 M2、认知层留 M4）。mood-translator **归任务层职责、是 mood 合法写者、但非完整 FSM**（不持有状态机状态、不读写 `intention`），M2 时自然成长为完整任务层的 mood 翻译子模块（增量演进、不被推翻）。命名与归属见 US1.3 与第 10 节术语表。
+> 关于三层架构/感知层的就位时机（**已架构师确认，见第 12.2 节 Q4/Q8，结论固化如下**）：M1 引入人体识别（感知层）后即需用到感知层与黑板最小子集（至少写 `person.visible`/`person.last_seen_ts`/`battery`/`mood`）。**M1 采用轻量形态**：感知层（最小 visible 管线）+ 黑板最小子集 + HAL + **一个极小心情翻译/计时单元（mood-translator）**承载 surprise→保持→calm 的心情通路；**不要求完整任务层 FSM、不要求认知层**（完整任务层 FSM 留 M2、认知层留 M4）。mood-translator **归任务层职责、是 mood 合法写者、但非完整 FSM**（不持有状态机状态、不读写 `intention`），M2 时自然成长为完整任务层的 mood 翻译子模块（增量演进、不被推翻）。命名与归属见 US1.3 与第 10 节术语表。
 
 ---
 
@@ -347,7 +348,7 @@ Cozmo 原厂 App 不可用，改用 pycozmo 作为底层引擎。pycozmo 只提�
 
 - **三层架构**：感知层（Reactive，~30Hz）/ 任务层（Sequencer，~10Hz，FSM）/ 认知层（Deliberator，秒级，LLM）。
 - **任务层 FSM**：任务层完整状态机（持有 `FREE_ROAM`/`PLAY_CUBE`/`FOLLOW`/`SEARCH` 等状态机状态、读写 `intention` 并据事实迁移状态），M2 起就位。与下文 mood-translator 区分：mood-translator 不持有状态机状态、不读写 intention。
-- **mood-translator（心情翻译/计时单元）**：M1 即就位的一个极小执行单元，**归任务层职责**（按第 11 节契约，mood 的合法写者是"任务层/认知层"，不含感知层；故 mood-translator 属任务层一侧、是 mood 的合法写者），但**不是完整任务层 FSM**——不持有状态机状态、不读写 `intention`。职责：读 `person.visible` 上升沿 → 置 `mood=surprise` → 计时 `SURPRISE_HOLD` → 到期按落点降级（M1 写 `mood=calm`）→ 把 mood 翻译为动画/表情/LED 经 HAL 下发。M2 时自然成长为完整任务层的 mood 翻译子模块（增量演进、不被推翻）。见 US1.3、第 7 节 M1、第 12.2 节 A-4/A-8。
+- **mood-translator（心情翻译/计时单元）**：M1 即就位的一个极小执行单元，**归任务层职责**（按第 11 节契约，mood 的合法写者是"任务层/认知层"，不含感知层；故 mood-translator 属任务层一侧、是 mood 的合法写者），但**不是完整任务层 FSM**——不持有状态机状态、不读写 `intention`。职责：读 `person.visible` 上升沿 → 置 `mood=surprise` → 计时 `SURPRISE_HOLD` → 到期按落点降级（M1 写 `mood=calm`）→ 把 mood 翻译为动画/表情/LED 经 HAL 下发。M2 时自然成长为完整任务层的 mood 翻译子模块（增量演进、不被推翻）。见 US1.3、第 7 节 M1、第 12.2 节 Q4/Q8。
 - **黑板（Blackboard / Belief store）**：层间唯一共享状态，下层写事实、上层写目标/心情。
 - **HAL**：硬件抽象层，封装 pycozmo，隔离上层与底层硬件。
 - **安全反射**：悬崖/碰撞在感知层内闭环的立即停车，不可被上层覆盖。
@@ -421,7 +422,7 @@ Q4~Q8 经架构师评审逐条确认（全部确认 PM 倾向并附加约束）�
 - 结论：~15fps 下 ON/OFF=3 帧（≈200ms 去抖窗口）合理；"1.5s 内开始播 surprise"是软件内部时延、与帧率无关、余量充足；唯一实测不确定项是 MediaPipe 在 320×240 灰度下检出稳定性（第 9 节已记录风险）。维持帧数/时延为"可配置默认值、联调再调"，以 Q5(2) 的感知层耗时/帧率日志作为调参数据支撑。
 - 落实章节：US1.2、US3.6、第 6 节时延口径与检测鲁棒性、第 9 节风险。
 
-**Q7（已确认）surprise 仲裁 + SURPRISE_HOLD/T1/visible 交叠 —— 确认 PM 默认，补三点时序边界。**
+**Q7（已确认）surprise 仲裁 + SURPRISE_HOLD/T1/visible 交叠 —— 确认 PM 默认，补四点时序边界。**
 - 结论：surprise 归类为事件驱动即时心情、沿用既有仲裁层级、无需新增层级；并明确以下时序边界（已写入 US4.3/US1.3）：
   1. **同层处理**：surprise 与其它事件即时心情（被拍 happy/playful）同属一层；`SURPRISE_HOLD` 期内若到达同级即时事件，surprise **不被同级打断**，期间到达的同级事件**丢弃或延后到 HOLD 结束**（二选一，由功能设计定其一）。
   2. **不冻结 T1**：surprise 最短保持期内**不冻结丢人 T1 计时**；T1 基于去抖后 visible 由 true→false 时刻起算（US3.4），与 surprise 是否仍在 HOLD 无关；安全反射始终可打断。
