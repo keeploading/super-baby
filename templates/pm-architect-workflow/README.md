@@ -54,7 +54,7 @@ pm-architect-workflow/
 1. 把三个 agent 复制到 `<目标>/.claude/agents/`
 2. 把 `/prd`、`/fds` 两个 skill 复制到 `<目标>/.claude/skills/`
 3. 把协作流程片段合并进 `<目标>/CLAUDE.md`（已存在则去重追加）
-4. 建好 `docs/requirements/` 与 `docs/design/` 目录
+4. 建好 `docs/requirements/` 目录（prd 与 fds 默认同放 `docs/requirements/<feature>/`）
 
 **方式二：手动复制**
 
@@ -72,7 +72,7 @@ cat CLAUDE.snippet.md >> your-project/CLAUDE.md   # 没有 CLAUDE.md 就先创�
 在目标项目里输入：
 
 - 触发流程一：**`/prd 我想做……（你的诉求）`**
-- 触发流程二：**`/fds docs/requirements/xxx-需求定义.md`**
+- 触发流程二：**`/fds docs/requirements/<feature>/<feature>-prd.md`**
 
 或直接自然语言描述（"帮我写需求……"），Claude 会自动识别并走对应 skill。每轮结束都会告诉你进展、是否达成一致、以及需要你确认/决策的事项。
 

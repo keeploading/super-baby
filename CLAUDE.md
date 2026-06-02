@@ -11,6 +11,6 @@
 ## 角色与产物（速览）
 
 - **product-manager**（需求主笔）、**architect**（设计主笔 / 需求评审）、**developer**（设计评审）。三者上下文隔离，不互相直接调用，往返由 skill 内的主控协调。
-- 需求文档存 `docs/requirements/`，设计文档存 `docs/design/`；默认中文产出。
+- 需求与设计文档默认同放 `docs/requirements/<feature>/` 下（`<feature>-prd.md`、`<feature>-fds.md`）；默认中文产出。
 
 > 编排细则（多轮评审、终轮整体复审、问题分类路由、文件即单一事实来源等）见 `.claude/skills/prd/SKILL.md` 与 `.claude/skills/fds/SKILL.md`，调用时自动加载。

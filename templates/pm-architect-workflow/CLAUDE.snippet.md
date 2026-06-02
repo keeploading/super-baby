@@ -7,5 +7,5 @@
 - 用户说"写功能设计 / 技术设计 / 根据需求文档生成功能设计文档" → **必须**调用 **`fds`** skill（流程二：功能设计文档，architect 主笔、developer 评审）。
 - 不要在主线程里自己手搓这两类文档；一律走对应 skill，由它编排 agent 往返。
 
-需求文档存 `docs/requirements/`，设计文档存 `docs/design/`；默认中文产出。编排细则（多轮评审、终轮整体复审、问题分类路由、文件即单一事实来源）见 `.claude/skills/prd/SKILL.md` 与 `.claude/skills/fds/SKILL.md`。
+需求与设计文档默认同放 `docs/requirements/<feature>/` 下（`<feature>-prd.md`、`<feature>-fds.md`）；默认中文产出。编排细则（多轮评审、终轮整体复审、问题分类路由、文件即单一事实来源）见 `.claude/skills/prd/SKILL.md` 与 `.claude/skills/fds/SKILL.md`。
 <!-- END pm-architect-workflow -->
