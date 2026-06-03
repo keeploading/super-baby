@@ -1,6 +1,6 @@
 # Cozmo「跟人走」第一阶段 —— 功能设计文档（FDS）
 
-> 状态：v4（在 §1 架构章节新增**分层类图**（§1.4，按感知/任务/认知/共享/底层/数据六层组织主要对象及其依赖/组合/经黑板读写的数据流关系）与**主流程状态图**（§1.5，任务层 FSM 四态迁移 + surprise 心情生命周期）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。沿用 v3；v3 仅 §3.3 小节编号与 §3.6.2 措辞可选润色，无语义改动；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
+> 状态：v4.1（在 §1 架构章节新增**分层类图**（§1.4）与**主流程状态图**（§1.5）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。v4.1 据 developer 对补图的评审修订：删 §1.4.3 误画的「FSM 写 intention」边、改为只读，使补图与 §3.6/§3.8.3/§4.1「intention 单写者=认知层（含其内规则兜底）」一致（DQ-1）；类图新起的聚合名 SafetyReflex/TaskLoop/MoodMap/CognitionLoop 等加 note 标注「示意名、落地可为模块/函数」与「纯数据(YAML)」（S-1/S-3/S-4）；MoodCtx stereotype 标 transient（S-2）；§1.5.1 note 把「连接中断」从安全反射名下析出、归 §6.2 停车重连（S-5）；类图成员类型的 `| None` 改 `nullable` 写法以兼容各 Mermaid 渲染器（S-8）；surprise 复见 mood 链从 FSM 迁移 label 精简、改引 §1.5.2（S-7）。**补图修订未改动任何正文设计语义**。详见文末「本轮（v4.1）补图评审处置记录」。沿用 v3；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
 > 上游需求：`docs/requirements/follow-me/follow-me-prd.md`（PRD v8，已定稿）
 > 背景构想：`docs/ideas/follow-me-idea.md`
 > 平台：Mac mini（Apple Silicon / 32GB）+ 实体 Cozmo，底层 [pycozmo](https://github.com/zayfod/pycozmo)
@@ -84,8 +84,8 @@
 ```mermaid
 classDiagram
     class Blackboard {
-        +person : Person | None
-        +cube : Cube | None
+        +person : Person nullable
+        +cube : Cube nullable
         +cliff_detected : bool
         +battery : float
         +mood : str
@@ -101,8 +101,8 @@ classDiagram
     class Person {
         <<immutable>>
         +visible : bool
-        +cx_norm : float | None
-        +size_norm : float | None
+        +cx_norm : float nullable
+        +size_norm : float nullable
         +last_seen_ts : float
     }
     class Cube {
@@ -112,7 +112,7 @@ classDiagram
         +move_seq : int
     }
     class MoodCtx {
-        <<task-internal>>
+        <<task-internal transient>>
         +following : bool
         +visible : bool
         +moving : bool
@@ -124,8 +124,8 @@ classDiagram
     BlackboardSnapshot ..> Person : 浅拷贝引用
     BlackboardSnapshot ..> Cube : 浅拷贝引用
     Blackboard ..> BlackboardLogger : 字段/事件变化输出
-    note for MoodCtx "任务层内部协作对象，不入黑板（§3.3.4）；由调用方每拍构造传给 MoodTranslator"
-    note for Blackboard "单写者 + 不可变对象整体替换 + 同一把锁内周期快照（§4.2 / M-D）"
+    note for MoodCtx "任务层内部瞬态协作对象，不入黑板（§3.3.4）；由调用方每拍构造传给 MoodTranslator"
+    note for Blackboard "单写者 + 不可变对象整体替换 + 同一把锁内周期快照（§4.2 / M-D）。成员类型中 nullable = 可空（对应 §4.1 的 float | None / 整体为 None，此处用 nullable 写法以兼容各 Mermaid 渲染器）"
 ```
 
 #### 1.4.2 感知层（perception/ + safety/）
@@ -149,7 +149,7 @@ classDiagram
     SafetyReflex ..> Blackboard : write cliff_detected（供上层观测/恢复）
     HalInterface ..> PoseDetector : on_camera_frame 覆盖式最新帧
     HalInterface ..> SafetyReflex : on_cliff 回调（感知层线程内）
-    note for SafetyReflex "感知层内闭环反射；安全维度仲裁最高优先级，不可被上层覆盖"
+    note for SafetyReflex "SafetyReflex 为安全反射机制（safety/，§6.1）的示意性聚合名，落地可为 on_cliff 回调内的函数/模块；感知层内闭环反射，安全维度仲裁最高优先级，不可被上层覆盖"
     note for VisibleDebouncer "迟滞计数器：VISIBLE_ON/OFF_FRAMES；M1 与 M3 共用同一实现（§3.2）"
 ```
 
@@ -184,11 +184,13 @@ classDiagram
     MoodTranslator ..> MoodCtx : tick 入参（场景上下文，不读黑板 intention/FSM）
     MoodTranslator ..> MoodMap : 查表取 动画/表情/LED
     MoodTranslator ..> Blackboard : write mood / mood_source / mood_ts
-    FSM ..> Blackboard : write intention（规则兜底时）
+    Blackboard ..> FSM : read intention（做迁移，FSM 不写 intention）
     MoodTranslator ..> HalInterface : 下发 animation / face / led
     VisualServo ..> HalInterface : 下发 drive_wheels（差动轮速）
-    note for FSM "FSM_STATE 为任务层内部状态，不写黑板（§4.1）；读 intention + 感知事实做迁移"
+    note for FSM "FSM_STATE 为任务层内部状态，不写黑板（§4.1）；FSM 只读 intention 做迁移、不写 intention。intention 写者统一为认知层（含其内规则兜底 RuleFallback，§1.4.4 / §3.8.3 / §4.1 单写者契约）"
     note for MoodTranslator "mood 唯一写者；即时心情(surprise/happy/playful)与低频来源(规则/认知)统一在此仲裁（§3.4）"
+    note for MoodMap "纯数据映射(YAML，§4.3)，非逻辑类；类名为查表语义示意"
+    note for TaskLoop "TaskLoop 为任务层线程 B 入口骨架的示意性聚合名（§5.3/§7.1/§8），落地可为模块/函数"
 ```
 
 #### 1.4.4 认知层（cognition/，M4 接入）
@@ -206,8 +208,9 @@ classDiagram
     CognitionLoop ..> RuleFallback : 未返回/非法/stale 时兜底（字段级）
     CognitionLoop ..> Blackboard : read world_summary 摘要
     CognitionLoop ..> Blackboard : write intention / mood / cog_decision_ts
-    note for RuleFallback "确定性规则，自 M2 起独立可跑；curious 由 FREE_ROAM 扫描经此写入（M-A，§3.8.3）"
+    note for RuleFallback "确定性规则，自 M2 起独立可跑；curious 由 FREE_ROAM 扫描经此写入（M-A，§3.8.3）。intention 兜底亦由此写黑板（与认知层共用 intention 单写者归属）"
     note for GemmaProvider "本地 Ollama（默认 provider）；JSON 字段映射、字段级校验/兜底（§3.8.1）"
+    note for CognitionLoop "本层 M4 落地；CognitionLoop/GemmaProvider/RuleFallback 为逻辑示意名，对应正文模块级接口 decide(world_summary, image) 与 cognition.rule_fallback()（§3.8），落地可为函数/类"
 ```
 
 #### 1.4.5 底层（hal/）
@@ -234,7 +237,7 @@ classDiagram
 
 #### 1.5.1 任务层 FSM 四态主流程（§3.6）
 
-迁移条件均取自 §3.6 现有 ASCII 图与 §3.6.1~§3.6.3 文字（visible 去抖、intention、T1/T2/T3、PLAY_CUBE_IDLE_TIMEOUT、cube 断连等）。安全反射（悬崖/碰撞/连接中断停车）旁路 FSM、不作为状态迁移画入图内，仅以注释标注（§6.1）。
+迁移条件均取自 §3.6 现有 ASCII 图与 §3.6.1~§3.6.3 文字（visible 去抖、intention、T1/T2/T3、PLAY_CUBE_IDLE_TIMEOUT、cube 断连等）。两类"立即停"均旁路 FSM、不作为状态迁移画入图内，仅以注释标注：悬崖/碰撞由安全反射处理（§6.1），连接中断由停车重连处理（§6.2）——二者口径不同、不混称。
 
 ```mermaid
 stateDiagram-v2
@@ -249,15 +252,16 @@ stateDiagram-v2
 
     FOLLOW --> SEARCH : visible 去抖丢失 > T1
 
-    SEARCH --> FOLLOW : visible 去抖重见（复见→surprise→happy）
+    SEARCH --> FOLLOW : visible 去抖重见（复见 mood 链见 §1.5.2）
     SEARCH --> FREE_ROAM : 进入 anxious 起 > T3 仍未重见 → calm
 
     note right of SEARCH
         进入即 confused；丢失 > T2 → anxious（§3.6.3）
     end note
     note left of FREE_ROAM
-        任意状态：悬崖/碰撞/连接中断 → 安全反射立即停（§6.1），
-        旁路 FSM、不作为状态迁移
+        任意状态立即停、旁路 FSM、不作为状态迁移：
+        · 悬崖/碰撞 → 安全反射（§6.1）
+        · 连接中断 → 停车 + 重连（§6.2）
     end note
 ```
 
@@ -942,4 +946,24 @@ v1 草案的四个开放问题（D-1/D-2/D-3/N-1）已在本轮（v2）经 devel
 | **D-3** 任务层线程数 | 采纳"不为 mood 单开线程"，**前置必须落实**：§5.1 契约 2「play_animation 等下发为异步提交（fire-and-forget）、不阻塞调用线程；pycozmo 原生阻塞则 HAL 内部用下发队列+消化线程」。单任务层线程即满足 10Hz。 | §5.1 契约 2、§7.1 |
 | **N-1**（=CQ-1）多模态快照画质 | 按默认采纳：复用感知层最新帧槽位、接受 320×240 灰度低质，取帧走槽位锁与感知层覆盖写互斥；**本期多模态为可选辅助、不作硬验收**（PRD 已如此定义，无需回需求阶段）。 | §3.8.1 |
 
-> 本轮 developer 评审的 4 条必须改（M-A curious 触发、M-B cube 序号、M-C HAL 硬闸、M-D 快照一致性）与 10 条建议改（S-1~S-10）已全部处理并落盘，文档无遗留待确认设计疑问；M1/M2/M3 主链路与 M4 接口均可据本文实现。
+> v2 轮 developer 代码评审的 4 条必须改（M-A curious 触发、M-B cube 序号、M-C HAL 硬闸、M-D 快照一致性）与 10 条建议改（S-1~S-10）已全部处理并落盘。v4/v4.1 轮针对 §1.4/§1.5 补图的评审处置见下「§10.1 本轮（v4.1）补图评审处置记录」。综合两轮，文档无遗留待确认设计疑问；M1/M2/M3 主链路与 M4 接口均可据本文实现。
+
+### 10.1 本轮（v4.1）补图评审处置记录
+
+> 背景：v4 在 §1 新增分层类图（§1.4）与主流程状态图（§1.5），均为**描述性补图**，不引入新设计语义。developer 完成补图评审，逐条处置如下（编号沿用 developer 评审原文）。**本轮所有修订仅限补图（图边/note/类型写法/措辞），未改动任何正文设计语义。**
+
+**覆盖度/忠实度小结回应**：developer 自核类图忠实度（2 处命名落地差异，非新造对象）、状态图忠实度（M-1 经其自我修正为不成立、四态迁移与 surprise 图均忠实）、粒度符合用户诉求、关键约束表达正确——架构师认同上述自核结论，无异议。
+
+| 编号 | 级别 | 处置 | 说明 / 落点 |
+|---|---|---|---|
+| **DQ-1** FSM 写 intention 写者归属 | 必须改 | **采纳** | 经核对 §4.1（intention「认知层写，无返回时规则兜底写」）+ §3.8.3（规则兜底属 cognition/）+ PRD §11 单写者契约：intention 唯一写者是认知层（含其内 RuleFallback），FSM **只读不写**。正文 §3.6「FSM 读 intention 做迁移」从无 FSM 写 intention 的依据，故 §1.4.3 误画的 `FSM ..> Blackboard : write intention（规则兜底时）` 边为补图笔误。已删该边、改为 `Blackboard ..> FSM : read intention（做迁移，FSM 不写 intention）`，并在 FSM note 显式写明「FSM 只读 intention、intention 写者统一为认知层（含 RuleFallback）」。消除「intention 双写者」全局不一致。落点：§1.4.3 类图 + note。 |
+| **S-1** SafetyReflex/TaskLoop 图新起类名 | 建议改 | **采纳**（倾向 developer 首选） | 在 §1.4.2 SafetyReflex note、§1.4.3 TaskLoop note 各加「示意性聚合名，落地可为模块/函数」，不在正文新认领类名（避免给 safety/、任务层入口骨架硬塞类语义）。落点：§1.4.2 / §1.4.3 note。 |
+| **S-2** MoodCtx stereotype | 建议改/可选 | **采纳** | §1.4.1 MoodCtx stereotype 由 `<<task-internal>>` 改为 `<<task-internal transient>>`，明示瞬态、非黑板级不可变数据对象；note「不入黑板、每拍构造」保留。落点：§1.4.1。 |
+| **S-3** MoodMap 类名 vs 纯数据(YAML) | 建议改 | **采纳** | §1.4.3 MoodMap 加 note「纯数据映射(YAML，§4.3)，非逻辑类；类名为查表语义示意」，与 §1.3 决策/§4.3「纯数据」对齐。落点：§1.4.3 note。 |
+| **S-4** 认知层类名与正文接口命名不对齐 | 建议改 | **采纳** | §1.4.4 CognitionLoop note 注明三类名（CognitionLoop/GemmaProvider/RuleFallback）为逻辑示意，对应正文模块级接口 `decide(world_summary, image)` 与 `cognition.rule_fallback()`（§3.8），落地可为函数/类；RuleFallback note 同时说明其写 intention 属 §3.8.3 单写者归属。落点：§1.4.4 note。 |
+| **S-5** §1.5.1 左 note 把「连接中断」错挂安全反射 | 建议改 | **采纳** | §1.5.1 左 note 改为分列「悬崖/碰撞 → 安全反射（§6.1）」「连接中断 → 停车 + 重连（§6.2）」，二者口径不混称；图引言（§1.5.1 正文）同步说明二者旁路 FSM、不作状态迁移。落点：§1.5.1 引言 + 左 note。 |
+| **S-6** FSM/surprise 图措辞与 ASCII 统一 | 可选 | **不采纳（保留现状）** | 现图 label（如「visible 去抖=true 且意图允许跟随」「visible 去抖丢失 > T1」）与 §3.6 ASCII 措辞已基本一致，无语义错；进一步逐字对齐收益小，按奥卡姆剃刀不再改动。 |
+| **S-7** surprise 复见链塞进 FSM 迁移 label | 可选 | **采纳** | §1.5.1 `SEARCH --> FOLLOW` label 由「复见→surprise→happy」精简为「visible 去抖重见（复见 mood 链见 §1.5.2）」，把 mood 生命周期归 §1.5.2，守住「FSM 管状态、translator 管 mood」边界。落点：§1.5.1。 |
+| **S-8** 成员类型 `Type \| None` 触发 Mermaid 渲染异常 | 建议改 | **采纳** | §1.4.1 类图成员类型 `Person \| None`/`float \| None` 等改为 `nullable` 写法（跨渲染器最稳妥、规避空格分隔 `\|` 的解析走样），并在 Blackboard note 标注「nullable = 可空，对应 §4.1 的 `float \| None`」。Python 代码块（§3.8.1/§4.1/§4.2）中的 `\| None` 是 Python 类型契约、非 Mermaid，保留不动。**说明：架构师无法打开 GitHub 预览实测，此处改用跨渲染器兼容写法规避风险，未声称已实测。** 落点：§1.4.1。 |
+
+**结论**：DQ-1（唯一必须改）已按单写者契约修正——FSM 只读 intention、写者统一认知层（含 RuleFallback）；建议改 S-1~S-5/S-7/S-8 全部采纳，S-6 保留现状。**已与研发对齐，无遗留待确认项，可提交用户决策。**
