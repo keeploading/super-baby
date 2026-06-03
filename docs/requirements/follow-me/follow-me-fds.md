@@ -1,6 +1,6 @@
 # Cozmo「跟人走」第一阶段 —— 功能设计文档（FDS）
 
-> 状态：v3（仅 §3.3 小节编号顺序与 §3.6.2 措辞的可选润色，无语义改动，沿用 v2；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
+> 状态：v4（在 §1 架构章节新增**分层类图**（§1.4，按感知/任务/认知/共享/底层/数据六层组织主要对象及其依赖/组合/经黑板读写的数据流关系）与**主流程状态图**（§1.5，任务层 FSM 四态迁移 + surprise 心情生命周期）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。沿用 v3；v3 仅 §3.3 小节编号与 §3.6.2 措辞可选润色，无语义改动；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
 > 上游需求：`docs/requirements/follow-me/follow-me-prd.md`（PRD v8，已定稿）
 > 背景构想：`docs/ideas/follow-me-idea.md`
 > 平台：Mac mini（Apple Silicon / 32GB）+ 实体 Cozmo，底层 [pycozmo](https://github.com/zayfod/pycozmo)
@@ -70,6 +70,220 @@
 2. **黑板并发模型 = 单写者 + 不可变对象整体原子替换 + 同一把锁内周期快照**：直接落实 PRD US4.1 并发契约（复合对象构造后不可变、所有 `set_*` 与 `snapshot()` 走同一把 `threading.Lock`，不依赖 GIL）。详见 §4.2。
 3. **mood-translator 从 M1 的独立轻量单元，到 M2 长成任务层 FSM 的一个子模块**——同一份代码增量演进、接口不变、不推翻。详见 §3.3 与 §8。
 4. **安全维度仲裁固定 安全反射 > 规则 > 模型；心情维度固定 事件即时心情 > 防抖窗口最新有效来源**。仲裁逻辑集中在任务层（mood）与感知层（safety），不分散。详见 §3.4。
+
+### 1.4 分层类图（主要对象与关系）
+
+下列类图**仅描述主要对象名及其关系**（不含方法细节），按六层组织，与 §1.2 模块表、§3 各小节、§4.1 数据模型一一对应。**核心架构约束在图中体现**：层间不直接调用，一律经 `Blackboard` 写/读交换状态（图中 `..> Blackboard` 的写依赖与 `Blackboard <..` 的读依赖），唯一例外是安全反射经 `HalInterface` 直达停轮（见 §6.1）。
+
+> 关系记号：实线菱形（`*--`）= 组合/拥有；空心三角（`<|--`）= 实现/继承；虚线箭头（`..>`）= 依赖（含"写/读黑板"的数据流，注释说明 write/read/direct）。
+
+#### 1.4.1 共享层：黑板与数据对象（world/ + 复合数据对象）
+
+黑板是层间唯一共享状态载体；`Person`/`Cube`/`MoodCtx` 等为构造后不可变的数据对象（§4.1/§4.2），仅标关键字段以体现数据契约，不画方法。
+
+```mermaid
+classDiagram
+    class Blackboard {
+        +person : Person | None
+        +cube : Cube | None
+        +cliff_detected : bool
+        +battery : float
+        +mood : str
+        +mood_source : str
+        +mood_ts : float
+        +intention : str
+        +cog_decision_ts : float
+    }
+    class BlackboardSnapshot {
+        <<immutable>>
+    }
+    class BlackboardLogger
+    class Person {
+        <<immutable>>
+        +visible : bool
+        +cx_norm : float | None
+        +size_norm : float | None
+        +last_seen_ts : float
+    }
+    class Cube {
+        <<immutable>>
+        +connected : bool
+        +tap_seq : int
+        +move_seq : int
+    }
+    class MoodCtx {
+        <<task-internal>>
+        +following : bool
+        +visible : bool
+        +moving : bool
+    }
+
+    Blackboard *-- Person : 持有当前引用
+    Blackboard *-- Cube : 持有当前引用
+    Blackboard ..> BlackboardSnapshot : snapshot() 同一把锁内产出
+    BlackboardSnapshot ..> Person : 浅拷贝引用
+    BlackboardSnapshot ..> Cube : 浅拷贝引用
+    Blackboard ..> BlackboardLogger : 字段/事件变化输出
+    note for MoodCtx "任务层内部协作对象，不入黑板（§3.3.4）；由调用方每拍构造传给 MoodTranslator"
+    note for Blackboard "单写者 + 不可变对象整体替换 + 同一把锁内周期快照（§4.2 / M-D）"
+```
+
+#### 1.4.2 感知层（perception/ + safety/）
+
+感知层把帧/传感器事实写入黑板；安全反射在本层内闭环，经 HAL 直达停轮、不经黑板上送（§6.1）。
+
+```mermaid
+classDiagram
+    class PoseDetector
+    class VisibleDebouncer {
+        +visible : bool
+    }
+    class SafetyReflex
+    class Blackboard
+    class HalInterface
+
+    PoseDetector *-- VisibleDebouncer : 去抖原始判定
+    PoseDetector ..> Blackboard : write person（visible/cx/size/last_seen_ts）
+    PoseDetector ..> Blackboard : write cube / cliff_detected / battery
+    SafetyReflex ..> HalInterface : direct stop_wheels（不经黑板，§6.1）
+    SafetyReflex ..> Blackboard : write cliff_detected（供上层观测/恢复）
+    HalInterface ..> PoseDetector : on_camera_frame 覆盖式最新帧
+    HalInterface ..> SafetyReflex : on_cliff 回调（感知层线程内）
+    note for SafetyReflex "感知层内闭环反射；安全维度仲裁最高优先级，不可被上层覆盖"
+    note for VisibleDebouncer "迟滞计数器：VISIBLE_ON/OFF_FRAMES；M1 与 M3 共用同一实现（§3.2）"
+```
+
+#### 1.4.3 任务层（task/：FSM + mood-translator + 视觉伺服）
+
+任务层每拍先 `snapshot()` 再决策；FSM 负责状态/意图/行为原语，`MoodTranslator` 负责 mood 仲裁/计时/翻译，`VisualServo` 负责 M3 控制律。mood 字段唯一写者是 `MoodTranslator`（§3.3.4）。
+
+```mermaid
+classDiagram
+    class TaskLoop
+    class FSM {
+        FREE_ROAM
+        PLAY_CUBE
+        FOLLOW
+        SEARCH
+    }
+    class MoodTranslator {
+        surprise: IDLE / HOLDING
+        +hold_deadline : float
+    }
+    class VisualServo
+    class MoodCtx
+    class MoodMap
+    class Blackboard
+    class HalInterface
+
+    TaskLoop *-- FSM : 持有并每拍 tick
+    TaskLoop *-- MoodTranslator : 持有并每拍 tick
+    FSM *-- VisualServo : FOLLOW 态调用（M3）
+    TaskLoop ..> Blackboard : read snapshot（每周期）
+    TaskLoop ..> MoodCtx : 每拍构造（following/visible/moving）
+    MoodTranslator ..> MoodCtx : tick 入参（场景上下文，不读黑板 intention/FSM）
+    MoodTranslator ..> MoodMap : 查表取 动画/表情/LED
+    MoodTranslator ..> Blackboard : write mood / mood_source / mood_ts
+    FSM ..> Blackboard : write intention（规则兜底时）
+    MoodTranslator ..> HalInterface : 下发 animation / face / led
+    VisualServo ..> HalInterface : 下发 drive_wheels（差动轮速）
+    note for FSM "FSM_STATE 为任务层内部状态，不写黑板（§4.1）；读 intention + 感知事实做迁移"
+    note for MoodTranslator "mood 唯一写者；即时心情(surprise/happy/playful)与低频来源(规则/认知)统一在此仲裁（§3.4）"
+```
+
+#### 1.4.4 认知层（cognition/，M4 接入）
+
+认知层在常驻线程 C 串行决策，读黑板摘要、写 intention/mood，永不下发电机指令；模型不可达/超时/stale 时由规则兜底接管。
+
+```mermaid
+classDiagram
+    class CognitionLoop
+    class GemmaProvider
+    class RuleFallback
+    class Blackboard
+
+    CognitionLoop ..> GemmaProvider : decide(world_summary, image?)
+    CognitionLoop ..> RuleFallback : 未返回/非法/stale 时兜底（字段级）
+    CognitionLoop ..> Blackboard : read world_summary 摘要
+    CognitionLoop ..> Blackboard : write intention / mood / cog_decision_ts
+    note for RuleFallback "确定性规则，自 M2 起独立可跑；curious 由 FREE_ROAM 扫描经此写入（M-A，§3.8.3）"
+    note for GemmaProvider "本地 Ollama（默认 provider）；JSON 字段映射、字段级校验/兜底（§3.8.1）"
+```
+
+#### 1.4.5 底层（hal/）
+
+HAL 是唯一触达硬件的边界，`PycozmoHal` 为真实现、`MockHal` 供无硬件联调；内部 `_cliff_active` 硬闸是安全反射的最后防线（§5.1 契约 1 / §6.1）。
+
+```mermaid
+classDiagram
+    class HalInterface {
+        <<interface>>
+    }
+    class PycozmoHal {
+        -_cliff_active : bool
+    }
+    class MockHal
+
+    HalInterface <|-- PycozmoHal
+    HalInterface <|-- MockHal
+    note for PycozmoHal "封装 pycozmo；下发类方法非阻塞 fire-and-forget；断连 no-op（§5.1 契约 2/3）"
+    note for HalInterface "上层只依赖抽象接口；安全反射经此 direct stop_wheels"
+```
+
+### 1.5 主流程状态图
+
+#### 1.5.1 任务层 FSM 四态主流程（§3.6）
+
+迁移条件均取自 §3.6 现有 ASCII 图与 §3.6.1~§3.6.3 文字（visible 去抖、intention、T1/T2/T3、PLAY_CUBE_IDLE_TIMEOUT、cube 断连等）。安全反射（悬崖/碰撞/连接中断停车）旁路 FSM、不作为状态迁移画入图内，仅以注释标注（§6.1）。
+
+```mermaid
+stateDiagram-v2
+    [*] --> FREE_ROAM
+
+    FREE_ROAM --> PLAY_CUBE : intention=play_cube 且 cube.connected
+    FREE_ROAM --> FOLLOW : visible 去抖=true 且意图允许跟随
+
+    PLAY_CUBE --> FREE_ROAM : PLAY_CUBE_IDLE_TIMEOUT 无新 tap/move
+    PLAY_CUBE --> FREE_ROAM : cube.connected 变 false（方块断连）
+    PLAY_CUBE --> FOLLOW : visible 去抖=true 且意图允许跟随
+
+    FOLLOW --> SEARCH : visible 去抖丢失 > T1
+
+    SEARCH --> FOLLOW : visible 去抖重见（复见→surprise→happy）
+    SEARCH --> FREE_ROAM : 进入 anxious 起 > T3 仍未重见 → calm
+
+    note right of SEARCH
+        进入即 confused；丢失 > T2 → anxious（§3.6.3）
+    end note
+    note left of FREE_ROAM
+        任意状态：悬崖/碰撞/连接中断 → 安全反射立即停（§6.1），
+        旁路 FSM、不作为状态迁移
+    end note
+```
+
+#### 1.5.2 surprise 心情生命周期主流程（§3.5）
+
+mood-translator 内部的 surprise 子状态（`IDLE / HOLDING`）与降级落点，取自 §3.5 四点实现与 §3.3.4 入参契约。降级落点由 `tick(snap, ctx, now)` 入参 `ctx.following`/`ctx.visible` 决定；细节（视觉伺服分区、字段级兜底等）不在此图展开。
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> HOLDING : visible 上升沿（mood=surprise, hold_deadline=now+SURPRISE_HOLD）
+    HOLDING --> HOLDING : 保持期内再现上升沿/同级即时事件 → 忽略/丢弃，不重置计时（§3.5 ①④）
+    HOLDING --> IDLE : 到 hold_deadline，按落点降级 mood
+
+    note right of HOLDING
+        到期落点（§3.5 ③，单调升级链、不回退）：
+        · ctx.following 且 ctx.visible → happy
+        · ctx.visible 为假且未到 T1 → calm
+        · M1（ctx.following 恒假）→ calm
+        其后 T1→confused、T2→anxious 由 FSM/规则单向推进
+    end note
+    note left of IDLE
+        T1 计时由 last_seen_ts 独立驱动，不读 surprise 子状态（§3.5 ②）；
+        安全反射可随时打断 surprise
+    end note
+```
 
 ---
 
