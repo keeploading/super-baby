@@ -1,6 +1,7 @@
 # Cozmo「跟人走」第一阶段 —— 功能设计文档（FDS）
 
-> 状态：v4.2（终轮整体复审收口：developer 通读全文发现 v4.1 的 DQ-1 修订有一处同源残影未收口——§1.2 模块表第 59 行 `task/` 的「写黑板字段」列仍写 `intention(兜底时)`，与第 60 行 `cognition/` 形成 intention 双写者表述，是 DQ-1 要根除矛盾在正文表格的残影。本轮纯一致性收口：删去第 59 行 `intention(兜底时)`、仅留 `mood`，并在 §1.2 表后加一句归属注（intention 单写者=认知层含规则兜底、规则兜底逻辑归 cognition/ 自 M2 独立可跑、task 只读不写），使 §1.2 表与「intention 单写者=认知层（含规则兜底）」全局一致。**未改动任何其它设计语义**；处置记录见 §10.1 终轮复审追加条。沿用 v4.1。）
+> 状态：v4.3（认知层执行线程归属收口：主控拍定，把 v4.2 复审中潜伏并被 DQ-1 清理激化的一处活矛盾——「认知层常驻线程 C M4 才启」与「规则兜底自 M2 起独立可跑、不随任务层跑」自相矛盾，致 M2~M3 无线程执行 `rule_fallback()`、M2「自由活动+心情」交付物落空——一并修掉。收口方向：认知层线程 C **自 M2 起即常驻**，M2~M3 只跑规则兜底这一纯规则 deliberator（不调用 Gemma），M4 才把 Gemma agent loop 叠加进同一线程 C。据此区分两件事：①线程 C 生命周期=M2 起；②Gemma/agent loop 能力=M4 才叠加。逐处订正 §1.1/§1.2/§1.3/§1.4.4/§2 映射表/§3.8/§4.4 config/§5.3/§7.1，根除「认知层 M4 才启」歧义残留；§8/§3.8.3/§3.8 线程模型本已一致、未动。intention 单写者=认知层（含 RuleFallback）、任务层线程 B 只读 intention 均不变——本轮只给规则兜底在 M2~M3 落实执行线程，**未改动仲裁/stale/接口等任何其它设计语义**。处置记录见 §10.1.1.a。沿用 v4.2。）
+> 历史：v4.2（终轮整体复审收口：developer 通读全文发现 v4.1 的 DQ-1 修订有一处同源残影未收口——§1.2 模块表第 59 行 `task/` 的「写黑板字段」列仍写 `intention(兜底时)`，与第 60 行 `cognition/` 形成 intention 双写者表述，是 DQ-1 要根除矛盾在正文表格的残影。纯一致性收口：删去第 59 行 `intention(兜底时)`、仅留 `mood`，并在 §1.2 表后加一句归属注。**未改动任何其它设计语义**；处置记录见 §10.1 终轮复审追加条。沿用 v4.1。）
 > 历史：v4.1（在 §1 架构章节新增**分层类图**（§1.4）与**主流程状态图**（§1.5）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。v4.1 据 developer 对补图的评审修订：删 §1.4.3 误画的「FSM 写 intention」边、改为只读，使补图与 §3.6/§3.8.3/§4.1「intention 单写者=认知层（含其内规则兜底）」一致（DQ-1）；类图新起的聚合名 SafetyReflex/TaskLoop/MoodMap/CognitionLoop 等加 note 标注「示意名、落地可为模块/函数」与「纯数据(YAML)」（S-1/S-3/S-4）；MoodCtx stereotype 标 transient（S-2）；§1.5.1 note 把「连接中断」从安全反射名下析出、归 §6.2 停车重连（S-5）；类图成员类型的 `| None` 改 `nullable` 写法以兼容各 Mermaid 渲染器（S-8）；surprise 复见 mood 链从 FSM 迁移 label 精简、改引 §1.5.2（S-7）。**补图修订未改动任何正文设计语义**。详见文末「本轮（v4.1）补图评审处置记录」。沿用 v3；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
 > 上游需求：`docs/requirements/follow-me/follow-me-prd.md`（PRD v8，已定稿）
 > 背景构想：`docs/ideas/follow-me-idea.md`
@@ -19,8 +20,8 @@
 ```
                           进程内（单进程多线程）
 ┌───────────────────────────────────────────────────────────────────────┐
-│  认知层 Deliberator (cognition/)        线程 C  ~秒级 / 事件驱动（M4 接入）  │
-│   读 world_summary（黑板快照摘要）→ 本地 Gemma agent loop / 规则兜底         │
+│  认知层 Deliberator (cognition/)   线程 C  ~秒级/事件（C 自 M2 起；M2~M3 仅规则兜底，M4 叠加 Gemma）│
+│   读 world_summary（黑板快照摘要）→ 本地 Gemma agent loop（M4）/ 规则兜底（M2 起）  │
 │   产出 {intention, mood} + cog_decision_ts → 写黑板                        │
 │   不下发任何电机指令；模型决策永不进实时控制环                                  │
 └──────────────▲─────────────────────────────────────────┬────────────────┘
@@ -58,18 +59,18 @@
 | `perception/` | 感知 | ~30Hz/回调 | 摄像头帧→Pose；方块/悬崖/电池/姿态采集；visible 去抖 | person*, cube, cliff_detected, battery | —（安全反射读 cliff，但在本层内） |
 | `safety/` | 感知内 | 与传感器回调同步 | 悬崖/碰撞→立即停轮（必要时后退）；连接中断停车 | cliff_detected（标志） | —（直达 HAL） |
 | `task/` | 任务 | ~10Hz | FSM 状态迁移；mood-translator（仲裁+计时+翻译）；视觉伺服控制律 | mood | person*, cube, mood, intention, cliff, battery |
-| `cognition/` | 认知 | 秒级/事件（M4） | Gemma agent loop + 规则兜底，产出 {intention, mood} | intention, mood, cog_decision_ts | world_summary（黑板摘要） |
+| `cognition/` | 认知 | 秒级/事件（线程 C 自 M2 起常驻；M2~M3 仅规则兜底，M4 叠加 Gemma） | 规则兜底（M2 起）+ Gemma agent loop（M4），产出 {intention, mood} | intention, mood, cog_decision_ts | world_summary（黑板摘要） |
 | `world/` | 共享 | — | 黑板：线程安全的字段存储 + 快照 + 结构化日志 | （存储载体） | （存储载体） |
 | `hal/` | 底层 | — | 封装 pycozmo：连接/电机/表情/动画/LED/方块/传感器回调；mock 可替换 | — | — |
 | `moods/` | 配置/数据 | — | 心情→动画/表情/LED 映射表（数据，不含逻辑） | — | — |
 
 > 注：`safety/` 在物理上运行于感知层线程（与悬崖/碰撞回调同步），逻辑上是"感知层内闭环的反射"，故归入感知层周期。
 >
-> 注：`intention` 的唯一写者是认知层（含其内规则兜底 RuleFallback，§3.8.3）——故本表中 `intention` 的写归 `cognition/` 行、不挂 `task/` 行（§4.1 / §1.4.4 / PRD §11 单写者契约）。规则兜底逻辑归属 `cognition/`、不随任务层跑；它**自 M2 起即独立可跑**（M2~M3 全程用规则跑通），M4 才叠加 Gemma（§3.8.3）。`task/` 只读 intention 做 FSM 迁移、不写 intention（§3.6 / §1.4.3 FSM note）。
+> 注：`intention` 的唯一写者是认知层（含其内规则兜底 RuleFallback，§3.8.3）——故本表中 `intention` 的写归 `cognition/` 行、不挂 `task/` 行（§4.1 / §1.4.4 / PRD §11 单写者契约）。规则兜底逻辑归属 `cognition/`、不随任务层跑；它由认知层常驻线程 C 执行，而**线程 C 自 M2 起即常驻启动**（§7.1 / §1.3 决策 1）——故规则兜底**自 M2 起即独立可跑**（M2~M3 线程 C 只跑这一纯规则 deliberator、不调用 Gemma），M4 才把 Gemma agent loop 叠加进同一线程 C（§3.8.3）。注意区分两件事：①线程 C 的生命周期（自 M2 起）与 ②Gemma/agent loop 能力（M4 才叠加）——二者不是一回事。`task/` 只读 intention 做 FSM 迁移、不写 intention（§3.6 / §1.4.3 FSM note）。
 
 ### 1.3 关键架构决策（需评审重点看）
 
-1. **单进程多线程，而非多进程**：三层共享黑板是高频读写的核心耦合点，进程内共享内存 + 锁的成本远低于跨进程 IPC/序列化；MediaPipe 与 pycozmo 均为进程内库；Gemma 经 Ollama 走本地 HTTP（本身就是跨进程的模型服务，认知层只持有 client）。故主程序为单进程，感知/任务/认知各起一个线程（认知层 M4 才启）。详见 §7.1。
+1. **单进程多线程，而非多进程**：三层共享黑板是高频读写的核心耦合点，进程内共享内存 + 锁的成本远低于跨进程 IPC/序列化；MediaPipe 与 pycozmo 均为进程内库；Gemma 经 Ollama 走本地 HTTP（本身就是跨进程的模型服务，认知层只持有 client）。故主程序为单进程，感知/任务/认知各起一个线程（认知层常驻线程 C 自 M2 起即启动：M2~M3 只跑规则兜底这一纯规则 deliberator，M4 才把 Gemma agent loop 叠加进同一线程 C——线程 C 的生命周期自 M2 起，Gemma 能力 M4 才叠加，二者区分见 §3.8.3 / §7.1）。详见 §7.1。
 2. **黑板并发模型 = 单写者 + 不可变对象整体原子替换 + 同一把锁内周期快照**：直接落实 PRD US4.1 并发契约（复合对象构造后不可变、所有 `set_*` 与 `snapshot()` 走同一把 `threading.Lock`，不依赖 GIL）。详见 §4.2。
 3. **mood-translator 从 M1 的独立轻量单元，到 M2 长成任务层 FSM 的一个子模块**——同一份代码增量演进、接口不变、不推翻。详见 §3.3 与 §8。
 4. **安全维度仲裁固定 安全反射 > 规则 > 模型；心情维度固定 事件即时心情 > 防抖窗口最新有效来源**。仲裁逻辑集中在任务层（mood）与感知层（safety），不分散。详见 §3.4。
@@ -196,9 +197,9 @@ classDiagram
     note for TaskLoop "TaskLoop 为任务层线程 B 入口骨架的示意性聚合名（§5.3/§7.1/§8），落地可为模块/函数"
 ```
 
-#### 1.4.4 认知层（cognition/，M4 接入）
+#### 1.4.4 认知层（cognition/：线程 C 自 M2 起，M2~M3 仅规则兜底，M4 叠加 Gemma）
 
-认知层在常驻线程 C 串行决策，读黑板摘要、写 intention/mood，永不下发电机指令；模型不可达/超时/stale 时由规则兜底接管。
+认知层在常驻线程 C 串行决策，读黑板摘要、写 intention/mood，永不下发电机指令。线程 C 自 M2 起即常驻：M2~M3 只运行 `RuleFallback`（纯规则、不调用 Gemma），M4 才把 `GemmaProvider` 叠加进同一线程 C，模型不可达/超时/stale 时仍由规则兜底接管。
 
 ```mermaid
 classDiagram
@@ -211,9 +212,9 @@ classDiagram
     CognitionLoop ..> RuleFallback : 未返回/非法/stale 时兜底（字段级）
     CognitionLoop ..> Blackboard : read world_summary 摘要
     CognitionLoop ..> Blackboard : write intention / mood / cog_decision_ts
-    note for RuleFallback "确定性规则，自 M2 起独立可跑；curious 由 FREE_ROAM 扫描经此写入（M-A，§3.8.3）。intention 兜底亦由此写黑板（与认知层共用 intention 单写者归属）"
-    note for GemmaProvider "本地 Ollama（默认 provider）；JSON 字段映射、字段级校验/兜底（§3.8.1）"
-    note for CognitionLoop "本层 M4 落地；CognitionLoop/GemmaProvider/RuleFallback 为逻辑示意名，对应正文模块级接口 decide(world_summary, image) 与 cognition.rule_fallback()（§3.8），落地可为函数/类"
+    note for RuleFallback "确定性规则，由线程 C 自 M2 起执行、独立可跑（M2~M3 全程用它跑通）；curious 由 FREE_ROAM 扫描经此写入（M-A，§3.8.3）。intention 兜底亦由此写黑板（与认知层共用 intention 单写者归属）"
+    note for GemmaProvider "本地 Ollama（默认 provider），M4 才叠加进线程 C；JSON 字段映射、字段级校验/兜底（§3.8.1）"
+    note for CognitionLoop "线程 C 自 M2 起常驻（M2~M3 只跑 RuleFallback），GemmaProvider 自 M4 叠加——区分 线程 C 生命周期(M2 起) 与 Gemma 能力(M4 才叠加)；CognitionLoop/GemmaProvider/RuleFallback 为逻辑示意名，对应正文模块级接口 decide(world_summary, image) 与 cognition.rule_fallback()（§3.8），落地可为函数/类"
 ```
 
 #### 1.4.5 底层（hal/）
@@ -314,7 +315,7 @@ stateDiagram-v2
 | US3.6 去抖+多人选择 | `VisibleDebouncer`（M1/M3 共用）+ 多人选 size_norm 最大者（§3.1.2，M3 起生效） | M1/M3 |
 | US4.1 三层周期+黑板解耦 | §1 架构；§4.2 并发契约（单写者+不可变整体替换+同一把锁内快照，M-D）；§7 并发模型 | M2 |
 | US4.2 认知决策意图/心情 | `cognition.decide()`（§3.8）结构化输出；**字段级校验、字段级兜底**（合法字段保留、非法字段走兜底，S-10/CQ-2，US4.2「非法枚举不被采纳」的实现细化、不改本意） | M4 |
-| US4.3 规则兜底+仲裁 | `cognition.rule_fallback()`（§3.8.3）；COG_DECISION_TTL stale 失效；§3.4 仲裁 | M4（仲裁框架 M2 起） |
+| US4.3 规则兜底+仲裁 | `cognition.rule_fallback()`（§3.8.3）；COG_DECISION_TTL stale 失效；§3.4 仲裁 | M2（规则兜底由认知层线程 C 跑通 + 仲裁框架就位）；M4 叠加模型覆盖与 stale 失效 |
 | US4.4 安全反射不可绕过 | `safety`（§6.1）感知层内闭环，仲裁最高优先级 | M2 |
 | US4.5 结构化日志 | `world.BlackboardLogger`（§3.9）逐字段/事件 JSON 行 | M2（M1 已用于 visible/帧率/mood 日志） |
 | US4.6 断连重连恢复 | `hal` 连接监控 + `task` 重连恢复（§6.2）；RECONNECT_MAX_RETRIES；重连回 FREE_ROAM | M2 |
@@ -559,9 +560,9 @@ MoodCtx = {
 
 cx_norm / size_norm 在感知层做时间滤波（如指数滑动平均，系数可配置），输出平滑值写黑板。接受"平滑滞后跟随、非紧跟"（PRD 第 6 节检测鲁棒性）。控制律消费平滑后的值。
 
-### 3.8 认知层 agent loop（M4）
+### 3.8 认知层（线程 C 自 M2 起；M2~M3 仅规则兜底，M4 叠加 agent loop）
 
-统一接口，本地 Gemma（Ollama）为默认 provider，云端为可选 fallback（本期不交付云端实现，仅保留切换能力）。
+认知层常驻线程 C 自 M2 起即启动：M2~M3 在 C 内只跑规则兜底（§3.8.3，纯规则、不调用模型），M4 才把下述 agent loop 叠加进同一线程 C。下文 §3.8.1/§3.8.2 描述的统一接口与 stale 失效随 Gemma 能力 M4 落地；本地 Gemma（Ollama）为默认 provider，云端为可选 fallback（本期不交付云端实现，仅保留切换能力）。
 
 #### 3.8.1 统一接口
 
@@ -601,7 +602,7 @@ def decide(world_summary: dict, image: bytes | None = None) -> dict:
 
 > curious 触发归属说明（M-A，闭合"七种心情未闭环"）：本设计选**规则兜底（FREE_ROAM 扫描动作）**作为 curious 的确定性落点，而非"SEARCH 进入瞬间给 curious 再转 confused"——后者会与 PRD US3.4「进入 SEARCH 即 confused」的明确语义打架（SEARCH 是"丢人着急找"，给 curious 语义不符）；FREE_ROAM 探索扫描才契合 PRD curious 触发场景"发现新目标/扫描中"。此落点自 M2 规则兜底就位即生效（FREE_ROAM 属 M2），M1 无 FREE_ROAM 故 M1 不触发 curious（M1 只有 surprise/calm，与 §8 里程碑表一致）。
 
-规则兜底**自 M2 起就独立可跑**（M2~M3 全程用规则跑通），M4 才叠加 Gemma；模型返回且未 stale 时覆盖规则结果（仲裁见 §3.4，安全反射永不可覆盖）。
+规则兜底由认知层常驻线程 C 执行，而线程 C **自 M2 起即常驻**（§7.1 / §1.3 决策 1）——故规则兜底**自 M2 起就独立可跑**（M2~M3 期间线程 C 只跑这一纯规则 deliberator、全程用规则跑通 intention/mood，如 visible→follow、丢人 T1→confused、FREE_ROAM 扫描→curious）；M4 才把 Gemma agent loop 叠加进同一线程 C，模型返回且未 stale 时覆盖规则结果（仲裁见 §3.4，安全反射永不可覆盖）。须区分：线程 C 生命周期=M2 起，Gemma 能力=M4 才叠加，二者不是一回事。
 
 ### 3.9 结构化日志（US4.5，M2 起；M1 已部分使用）
 
@@ -737,12 +738,12 @@ size_hysteresis: <实测定>       # 区间边界迟滞量
 cliff_backoff_max: 20           # 悬崖后退最大距离(mm)（US2.1）
 play_cube_idle_timeout: 12.0    # 玩方块无互动回退(s)（US2.2）
 
-# ── 认知层（M4）──
-cognition_period: 1.5           # 认知层决策周期(s)
-cog_decision_ttl: 3.0           # 模型决策有效期(s)，默认 2× cognition_period（US4.3）
-cognition_provider: ollama      # 默认本地；保留 cloud 切换能力（本期不交付）
-cognition_thinking_highfreq: false  # 高频意图决策关 thinking
-multimodal_min_interval: 5.0    # 多模态看图最小间隔(s)
+# ── 认知层（线程 C 自 M2 起；下列前两项 M2 即用，余项 M4 Gemma 用）──
+cognition_period: 1.5           # 认知层线程 C 决策周期(s)，M2 起即用作规则兜底触发周期
+cog_decision_ttl: 3.0           # 模型决策有效期(s)，默认 2× cognition_period（US4.3，stale 框架 M2 仲裁就位、M4 起约束模型结果）
+cognition_provider: ollama      # 默认本地；保留 cloud 切换能力（本期不交付）；M4 Gemma 用
+cognition_thinking_highfreq: false  # 高频意图决策关 thinking；M4 Gemma 用
+multimodal_min_interval: 5.0    # 多模态看图最小间隔(s)；M4 Gemma 用
 
 # ── 连接/重连 ──
 reconnect_max_retries: 3        # 重连上限(US4.6)
@@ -831,7 +832,7 @@ main.py --demo follow    # M3：+ FOLLOW/SEARCH 视觉伺服 + 丢人情绪
 5. 退出（Ctrl-C）：停轮 → hal.disconnect()，安全断开不残留
 ```
 
-> `--demo roam`/`--demo follow` 在此基础上增启完整 FSM、安全反射、重连、（M4）认知层线程。各 demo 通过开关装配不同层，main.py 是装配点。
+> `--demo roam`/`--demo follow` 在此基础上增启完整 FSM、安全反射、重连，以及**认知层线程 C**（M2~M3 仅跑规则兜底，M4 叠加 Gemma agent loop——线程 C 生命周期自 M2 起、Gemma 能力 M4 才叠加，§7.1）。各 demo 通过开关装配不同层，main.py 是装配点。
 
 ---
 
@@ -883,10 +884,11 @@ hal.on_disconnect 触发
 
 ### 7.1 并发模型（三层不同周期调度）
 
-- **线程划分（定死，S-4）**：感知层线程 A（~30Hz / 帧回调驱动）、任务层线程 B（~10Hz 定时）、**认知层 1 个常驻线程 C**（秒级 / 事件，M4 起）。HAL 的 pycozmo 回调在其自身 I/O 线程，经覆盖式槽位 + 黑板与三层解耦。
+- **线程划分（定死，S-4）**：感知层线程 A（~30Hz / 帧回调驱动）、任务层线程 B（~10Hz 定时）、**认知层 1 个常驻线程 C**（秒级 / 事件）。**线程 C 自 M2 起即常驻启动**——M2~M3 在 C 内只运行规则兜底这一纯规则 deliberator（不调用 Gemma），M4 才把 Gemma agent loop 叠加进**同一线程 C**（同一线程、同一黑板读写口）。须区分两件事：①线程 C 的生命周期（自 M2 起）与 ②Gemma/agent loop 能力（M4 才叠加），二者不是一回事——故 M2~M3 规则兜底由线程 C 执行（不挂任务层线程 B），写黑板 intention/mood（单写者仍逻辑归属认知层模块）。HAL 的 pycozmo 回调在其自身 I/O 线程，经覆盖式槽位 + 黑板与三层解耦。
 - **周期实现**：B 用固定步长循环（每拍 ~100ms，先 snapshot 再决策再下发）；A 由帧回调驱动 + 自身节流到 ~30Hz；**C 用定时器/事件触发，在其常驻线程内部串行执行决策——前一次决策未完成则跳过本次触发、不堆积（无嵌套子线程）**。删去旧表述"决策走子线程"的二义：认知层不再为每次决策另起子线程，只有 C 这一个常驻线程；它本身就独立于 A/B，故 Gemma 推理慢也不阻塞 A/B。
 - **线程安全**：全部跨线程状态经黑板（§4.2 同一把锁 + 不可变对象整体替换 + 快照）；HAL 下发指令线程安全（pycozmo 调用经 HAL 串行化或其内部队列，见 §5.1 非阻塞下发契约）。
 - **不阻塞实时环**：认知层 Gemma 推理可能数百 ms~秒级，运行在常驻线程 C，**绝不阻塞 A/B**；任务层只读黑板里"已就绪"的 intention/mood（带 stale 校验），从不等模型（US4.1/US4.2）。
+- **线程 C 在 M2~M3 的开销（可忽略）**：M2~M3 线程 C 只跑纯规则 deliberator（读 world_summary 摘要 + 确定性分支 + 写黑板，无模型推理），按 `cognition_period`（默认 1.5s，§4.4）低频触发，CPU/内存开销可忽略，不构成 32GB 同台共存压力（Gemma 的 13–18GB 内存占用要 M4 才发生，见 §7.2）。故"线程 C 自 M2 起常驻"对 M1→M3 资源预算无实质影响。
 - **MediaPipe 与 GIL 争用风险（前置标注，S-3）**：MediaPipe Pose 是进程内 C 扩展，跑在感知层线程 A。其推理是否在 GIL 外执行**尚未论证**——若某段不释放 GIL，每帧几十 ms 会周期性占住解释器，导致任务层 B 的 10Hz 周期抖动。**验证项（M1 实测）**：以感知层逐帧耗时日志（§3.1.3）+ 任务层周期抖动日志佐证，确认 Pose 推理是否在 GIL 外执行、B 周期是否稳定。**退路（不现在改架构）**：若 GIL 争用致 B 周期不稳，把 Pose 推理移到独立子进程，仅回传 visible/cx/size 等小结果（小数据量 IPC，不传整帧）。当前阶段仅前置标注此风险与退路，架构不预先改动。
 
 ### 7.2 资源与可观测（PRD 第 6 节）
@@ -981,8 +983,34 @@ v1 草案的四个开放问题（D-1/D-2/D-3/N-1）已在本轮（v2）经 devel
 
 **边界检查（M2~M3 规则兜底由哪个线程驱动）结论**：本次收口仅删表格残影、未改任何执行语义，**不引入新空洞**（修正前后 intention/curious 等的写入路径与触发逻辑完全未变，仅把「谁是写者」的表述统一到 cognition/）。
 
-但复审中确认存在一个**先于本轮即潜伏的真实设计问题**，需单独澄清，不在本次补图收口里擅自新增设计：
+复审中曾标注一个**先于本轮即潜伏的真实设计问题**（M2~M3 规则兜底由哪个线程驱动），当时不在补图收口范围内、交主控决定。该条已于 v4.3 处理，记录如下。
 
-> 【设计疑问·待主控决定是否单独处理】**M2~M3 阶段 `cognition.rule_fallback()` 由哪个线程驱动？** 现状：§1.3 决策 1 / §7.1 明确认知层常驻线程 C「M4 才启」；但 §2 映射表（US4.3「仲裁框架 M2 起」、curious M2 生效）、§3.8.3（规则兜底「自 M2 起就独立可跑」）要求规则兜底从 M2 即产出 intention/mood（如 visible→follow、丢人 T1→confused、FREE_ROAM 扫描→curious）。线程 C 既然 M4 才启，则 M2~M3 期间规则兜底逻辑必须由**某个已存在的线程**驱动——最自然的候选是任务层线程 B（每拍 snapshot 后顺带跑一次确定性规则、写 intention/mood）。若如此，则「intention 由 cognition/ 模块负责、但 M2~M3 实际由线程 B 调用 cognition.rule_fallback() 执行」需要在 §7.1 线程模型或 §3.8.3 里写明「模块归属 cognition/ ≠ M2~M3 的执行线程」，否则读者会困惑「线程 C 未启时谁写 intention」。这不影响单写者归属（写者仍逻辑归属认知层模块，与 task 共用 intention 单写口径），但**执行线程归属**在正文尚未点明。**本轮不擅自补写线程归属（属新增设计语义，超出一致性收口范围）**，标注交回，由主控决定是否作为独立条目单独处理。
+#### 10.1.1.a 执行线程归属收口（v4.3，主控决定现在处理）
 
-**v4.2 结论**：§1.2 表残影已收口，intention 单写者口径全局自洽，DQ-1 彻底闭合，未引入新空洞。除上述【设计疑问·待主控决定是否单独处理】（M2~M3 规则兜底执行线程归属，先于本轮潜伏、非本次收口引入）外，无其它遗留。
+> 原【设计疑问·待主控决定是否单独处理】**M2~M3 阶段 `cognition.rule_fallback()` 由哪个线程驱动？** 已由主控拍定，**现在一并修掉**。
+
+**矛盾定位**：v4.2 收口后文档出现一处活矛盾——§1.2 表后注与 §3.8.3 称规则兜底「不随任务层跑、自 M2 起独立可跑」，但 §1.1/§1.2/§1.3/§7.1/§1.4.4 又把认知层常驻线程 C 描述为「M4 才启」。两者合起来意味着 M2~M3 没有任何线程执行 `rule_fallback()`，intention 与 curious/confused/anxious 等心情无人产出，使 M2「自由活动+心情」交付物落空。根因是文档把两件事混成「M4 才启」：①认知层**线程 C 的生命周期**；②**Gemma/agent loop 能力**。
+
+**收口方向（主控拍定，按文档既有倾向收口）**：认知层常驻线程 C **自 M2 起即启动**，M2~M3 在 C 内只运行规则兜底这一纯规则 deliberator（不调用 Gemma）；M4 才把 Gemma agent loop 叠加进**同一线程 C**（同一线程、同一黑板读写口，模型结果经仲裁/stale 覆盖规则）。由此：①线程 C 生命周期 = M2 起；②Gemma 能力 = M4 才叠加，二者明确区分。intention 单写者仍为认知层（含其内 RuleFallback）不变——本轮只是给它在 M2~M3 落实执行线程（线程 C），任务层线程 B 仍只读 intention、不写。
+
+**订正落点（统一为「线程 C 自 M2 起、M4 叠加 Gemma」口径）**：
+
+| 落点 | 订正内容 |
+|---|---|
+| §1.1 ASCII（认知层框、任务层框注） | 认知层周期注由「M4 接入」改为「C 自 M2 起；M2~M3 仅规则兜底，M4 叠加 Gemma」 |
+| §1.2 模块表 `cognition/` 行「周期」列 | 「秒级/事件（M4）」改为「线程 C 自 M2 起常驻；M2~M3 仅规则兜底，M4 叠加 Gemma」 |
+| §1.2 表后归属注 | 让「自 M2 独立可跑」有线程承载：明确规则兜底由线程 C 执行、线程 C 自 M2 起常驻，区分线程 C 生命周期与 Gemma 能力 |
+| §1.3 决策 1 | 「认知层 M4 才启」改为「认知层常驻线程 C 自 M2 起启动（M2~M3 仅规则兜底），M4 叠加 Gemma」 |
+| §1.4.4 标题、引言、类图 3 条 note | 「本层 M4 落地」拆为「线程 C 自 M2 起 / Gemma M4 才叠加」；RuleFallback note 注明由线程 C 自 M2 起执行 |
+| §3.8 标题与引言、§3.8.3 末段 | 统一「线程 C 自 M2 起、M4 叠加 agent loop」；规则兜底「自 M2 独立可跑」落到线程 C |
+| §7.1 线程划分 | 「认知层 1 个常驻线程 C（M4 起）」改为「线程 C 自 M2 起常驻、M2~M3 仅规则兜底、M4 叠加 Gemma」；新增「线程 C 在 M2~M3 的开销（可忽略）」一条，把空转/低频跑规则的 CPU/内存开销纳入并说明对 M1→M3 资源预算无实质影响（Gemma 内存占用要 M4 才发生） |
+| §2 映射表 US4.3 里程碑列 | 「M4（仲裁框架 M2 起）」改为「M2（规则兜底由线程 C 跑通 + 仲裁框架就位）；M4 叠加模型覆盖与 stale 失效」 |
+| §4.4 config 认知层注释块 | 注释由「认知层（M4）」改为「线程 C 自 M2 起；`cognition_period`/`cog_decision_ttl` M2 即用，provider/thinking/multimodal 为 M4 Gemma 用」 |
+| §5.3 main.py 装配说明 | 「（M4）认知层线程」改为「认知层线程 C（M2~M3 规则兜底，M4 叠加 Gemma）」 |
+
+§8 里程碑表（M2 行 `cognition(规则兜底先行)`、`规则兜底独立可跑`；M4 行 `cognition(Gemma agent loop) 叠加到规则兜底之上`）与 §3.8.3 行 604、§3.8 线程模型「唯一常驻线程 C 内串行执行」**本已与该口径一致**，措辞无需改动（"串行执行"结论不变，且未暗示线程 C 仅 M4 存在），故不动。
+
+**边界**：本轮是把已潜伏的执行线程归属点明、使全文自洽的**收口**，非新增能力——未改动仲裁/stale/接口等任何其它设计语义。intention 单写者归属、任务层线程 B 只读 intention 均保持不变。
+
+**v4.2 结论**（保留）：§1.2 表残影已收口，intention 单写者口径全局自洽，DQ-1 彻底闭合，未引入新空洞。
+**v4.3 结论**：认知层执行线程归属已收口——全文统一为「认知层线程 C 生命周期 = M2 起、M2~M3 仅规则兜底、Gemma 能力 M4 才叠加」，「认知层 M4 才启」的歧义残留已根除；M2「自由活动+心情」交付物有线程承载。**已与研发对齐口径、无遗留【设计疑问】，可提交用户决策。**
