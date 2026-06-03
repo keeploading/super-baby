@@ -1,6 +1,7 @@
 # Cozmo「跟人走」第一阶段 —— 功能设计文档（FDS）
 
-> 状态：v4.1（在 §1 架构章节新增**分层类图**（§1.4）与**主流程状态图**（§1.5）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。v4.1 据 developer 对补图的评审修订：删 §1.4.3 误画的「FSM 写 intention」边、改为只读，使补图与 §3.6/§3.8.3/§4.1「intention 单写者=认知层（含其内规则兜底）」一致（DQ-1）；类图新起的聚合名 SafetyReflex/TaskLoop/MoodMap/CognitionLoop 等加 note 标注「示意名、落地可为模块/函数」与「纯数据(YAML)」（S-1/S-3/S-4）；MoodCtx stereotype 标 transient（S-2）；§1.5.1 note 把「连接中断」从安全反射名下析出、归 §6.2 停车重连（S-5）；类图成员类型的 `| None` 改 `nullable` 写法以兼容各 Mermaid 渲染器（S-8）；surprise 复见 mood 链从 FSM 迁移 label 精简、改引 §1.5.2（S-7）。**补图修订未改动任何正文设计语义**。详见文末「本轮（v4.1）补图评审处置记录」。沿用 v3；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
+> 状态：v4.2（终轮整体复审收口：developer 通读全文发现 v4.1 的 DQ-1 修订有一处同源残影未收口——§1.2 模块表第 59 行 `task/` 的「写黑板字段」列仍写 `intention(兜底时)`，与第 60 行 `cognition/` 形成 intention 双写者表述，是 DQ-1 要根除矛盾在正文表格的残影。本轮纯一致性收口：删去第 59 行 `intention(兜底时)`、仅留 `mood`，并在 §1.2 表后加一句归属注（intention 单写者=认知层含规则兜底、规则兜底逻辑归 cognition/ 自 M2 独立可跑、task 只读不写），使 §1.2 表与「intention 单写者=认知层（含规则兜底）」全局一致。**未改动任何其它设计语义**；处置记录见 §10.1 终轮复审追加条。沿用 v4.1。）
+> 历史：v4.1（在 §1 架构章节新增**分层类图**（§1.4）与**主流程状态图**（§1.5）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。v4.1 据 developer 对补图的评审修订：删 §1.4.3 误画的「FSM 写 intention」边、改为只读，使补图与 §3.6/§3.8.3/§4.1「intention 单写者=认知层（含其内规则兜底）」一致（DQ-1）；类图新起的聚合名 SafetyReflex/TaskLoop/MoodMap/CognitionLoop 等加 note 标注「示意名、落地可为模块/函数」与「纯数据(YAML)」（S-1/S-3/S-4）；MoodCtx stereotype 标 transient（S-2）；§1.5.1 note 把「连接中断」从安全反射名下析出、归 §6.2 停车重连（S-5）；类图成员类型的 `| None` 改 `nullable` 写法以兼容各 Mermaid 渲染器（S-8）；surprise 复见 mood 链从 FSM 迁移 label 精简、改引 §1.5.2（S-7）。**补图修订未改动任何正文设计语义**。详见文末「本轮（v4.1）补图评审处置记录」。沿用 v3；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
 > 上游需求：`docs/requirements/follow-me/follow-me-prd.md`（PRD v8，已定稿）
 > 背景构想：`docs/ideas/follow-me-idea.md`
 > 平台：Mac mini（Apple Silicon / 32GB）+ 实体 Cozmo，底层 [pycozmo](https://github.com/zayfod/pycozmo)
@@ -56,13 +57,15 @@
 |---|---|---|---|---|---|
 | `perception/` | 感知 | ~30Hz/回调 | 摄像头帧→Pose；方块/悬崖/电池/姿态采集；visible 去抖 | person*, cube, cliff_detected, battery | —（安全反射读 cliff，但在本层内） |
 | `safety/` | 感知内 | 与传感器回调同步 | 悬崖/碰撞→立即停轮（必要时后退）；连接中断停车 | cliff_detected（标志） | —（直达 HAL） |
-| `task/` | 任务 | ~10Hz | FSM 状态迁移；mood-translator（仲裁+计时+翻译）；视觉伺服控制律 | mood, intention(兜底时) | person*, cube, mood, intention, cliff, battery |
+| `task/` | 任务 | ~10Hz | FSM 状态迁移；mood-translator（仲裁+计时+翻译）；视觉伺服控制律 | mood | person*, cube, mood, intention, cliff, battery |
 | `cognition/` | 认知 | 秒级/事件（M4） | Gemma agent loop + 规则兜底，产出 {intention, mood} | intention, mood, cog_decision_ts | world_summary（黑板摘要） |
 | `world/` | 共享 | — | 黑板：线程安全的字段存储 + 快照 + 结构化日志 | （存储载体） | （存储载体） |
 | `hal/` | 底层 | — | 封装 pycozmo：连接/电机/表情/动画/LED/方块/传感器回调；mock 可替换 | — | — |
 | `moods/` | 配置/数据 | — | 心情→动画/表情/LED 映射表（数据，不含逻辑） | — | — |
 
 > 注：`safety/` 在物理上运行于感知层线程（与悬崖/碰撞回调同步），逻辑上是"感知层内闭环的反射"，故归入感知层周期。
+>
+> 注：`intention` 的唯一写者是认知层（含其内规则兜底 RuleFallback，§3.8.3）——故本表中 `intention` 的写归 `cognition/` 行、不挂 `task/` 行（§4.1 / §1.4.4 / PRD §11 单写者契约）。规则兜底逻辑归属 `cognition/`、不随任务层跑；它**自 M2 起即独立可跑**（M2~M3 全程用规则跑通），M4 才叠加 Gemma（§3.8.3）。`task/` 只读 intention 做 FSM 迁移、不写 intention（§3.6 / §1.4.3 FSM note）。
 
 ### 1.3 关键架构决策（需评审重点看）
 
@@ -967,3 +970,19 @@ v1 草案的四个开放问题（D-1/D-2/D-3/N-1）已在本轮（v2）经 devel
 | **S-8** 成员类型 `Type \| None` 触发 Mermaid 渲染异常 | 建议改 | **采纳** | §1.4.1 类图成员类型 `Person \| None`/`float \| None` 等改为 `nullable` 写法（跨渲染器最稳妥、规避空格分隔 `\|` 的解析走样），并在 Blackboard note 标注「nullable = 可空，对应 §4.1 的 `float \| None`」。Python 代码块（§3.8.1/§4.1/§4.2）中的 `\| None` 是 Python 类型契约、非 Mermaid，保留不动。**说明：架构师无法打开 GitHub 预览实测，此处改用跨渲染器兼容写法规避风险，未声称已实测。** 落点：§1.4.1。 |
 
 **结论**：DQ-1（唯一必须改）已按单写者契约修正——FSM 只读 intention、写者统一认知层（含 RuleFallback）；建议改 S-1~S-5/S-7/S-8 全部采纳，S-6 保留现状。**已与研发对齐，无遗留待确认项，可提交用户决策。**
+
+#### 10.1.1 终轮整体复审处置记录（v4.2）
+
+> 背景：developer 终轮通读全文，发现 v4.1 的 DQ-1 修订有一处**同源残影未收口**——补图（§1.4.3 FSM note / §1.4.4 RuleFallback note）与正文 §4.1/§3.8.3/PRD §11 都已统一为「intention 单写者=认知层（含规则兜底）」，但 §1.2 模块表第 59 行 `task/` 的「写黑板字段」列仍残留 `intention(兜底时)`，与第 60 行 `cognition/` 形成同一张表内的 intention 双写者表述。本轮为**纯一致性收口**，不改其它设计语义。
+
+| 编号 | 级别 | 处置 | 说明 / 落点 |
+|---|---|---|---|
+| **DQ-1 残影** §1.2 表第 59 行 task 仍挂 intention(兜底时) | 必须改 / 设计疑问 | **采纳** | 按 developer 建议：第 59 行 `task/` 的「写黑板字段」列由 `mood, intention(兜底时)` 改为仅 `mood`（删 `intention(兜底时)`）；intention 兜底写归 `cognition/` 行（第 60 行已含）。并在 §1.2 表后新增一句归属注，明示「intention 单写者=认知层（含规则兜底 RuleFallback）、规则兜底逻辑归 `cognition/` 不随任务层跑、自 M2 起独立可跑、task 只读不写」，消除「规则兜底 M2 即随任务层跑」的误解。至此 §1.2 表与 §1.4.3/§1.4.4/§4.1/PRD §11「intention 单写者=认知层」全局自洽，DQ-1 彻底闭合。落点：§1.2 第 59 行 + §1.2 表后注。 |
+
+**边界检查（M2~M3 规则兜底由哪个线程驱动）结论**：本次收口仅删表格残影、未改任何执行语义，**不引入新空洞**（修正前后 intention/curious 等的写入路径与触发逻辑完全未变，仅把「谁是写者」的表述统一到 cognition/）。
+
+但复审中确认存在一个**先于本轮即潜伏的真实设计问题**，需单独澄清，不在本次补图收口里擅自新增设计：
+
+> 【设计疑问·待主控决定是否单独处理】**M2~M3 阶段 `cognition.rule_fallback()` 由哪个线程驱动？** 现状：§1.3 决策 1 / §7.1 明确认知层常驻线程 C「M4 才启」；但 §2 映射表（US4.3「仲裁框架 M2 起」、curious M2 生效）、§3.8.3（规则兜底「自 M2 起就独立可跑」）要求规则兜底从 M2 即产出 intention/mood（如 visible→follow、丢人 T1→confused、FREE_ROAM 扫描→curious）。线程 C 既然 M4 才启，则 M2~M3 期间规则兜底逻辑必须由**某个已存在的线程**驱动——最自然的候选是任务层线程 B（每拍 snapshot 后顺带跑一次确定性规则、写 intention/mood）。若如此，则「intention 由 cognition/ 模块负责、但 M2~M3 实际由线程 B 调用 cognition.rule_fallback() 执行」需要在 §7.1 线程模型或 §3.8.3 里写明「模块归属 cognition/ ≠ M2~M3 的执行线程」，否则读者会困惑「线程 C 未启时谁写 intention」。这不影响单写者归属（写者仍逻辑归属认知层模块，与 task 共用 intention 单写口径），但**执行线程归属**在正文尚未点明。**本轮不擅自补写线程归属（属新增设计语义，超出一致性收口范围）**，标注交回，由主控决定是否作为独立条目单独处理。
+
+**v4.2 结论**：§1.2 表残影已收口，intention 单写者口径全局自洽，DQ-1 彻底闭合，未引入新空洞。除上述【设计疑问·待主控决定是否单独处理】（M2~M3 规则兜底执行线程归属，先于本轮潜伏、非本次收口引入）外，无其它遗留。
