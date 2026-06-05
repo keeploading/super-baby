@@ -1,6 +1,7 @@
 # Cozmo「跟人走」第一阶段 —— 功能设计文档（FDS）
 
-> 状态：v4.4（M4 认知模型选型更新：用户拍定，把 M4 默认认知模型由 `Gemma 26B-A4B` 改为新发布的 **Gemma 4 12B**（稠密、encoder-free 原生多模态，Q4_K_M 约 8–12GB，经 Ollama），26B-A4B 降为可切换备选。变更范围为**纯选型/配置/文档更新**：①§7.2 主改默认/备选模型及内存口径并补选型权衡（内存减半利于 32GB 与 MediaPipe 共存，稠密 12B 单 token 解码略慢于 A4B 但低频/短输出/非 SLA 用法无实质影响——诚实写明、不吹碾压）；②全文跨节同步 §7.1 行 891 等写死旧内存数字处，确保「M4 默认模型/其内存占用」口径全局一致；③§4.4 认知层 config 块新增显式 `cognition_model` 字段，使「改 config 切模型」有承载；④§7.2 补 M4 待确认点（Ollama 的 Gemma 4 12B tag 是否真支持传图、本机首字延迟/解码速度实测、结构化 JSON 输出在新模型重验、核对 license）；⑤§10 风险「Gemma 结构化输出成熟度」补一句换模型后需重验结构化输出与多模态可用性。**未改动任何架构/接口/仲裁/stale/线程/单写者设计语义**；处置记录见 §10.1.2。沿用 v4.3。）
+> 状态：v4.5（§1.4 类图布局按《类图绘制规约》对齐：依赖型图（§1.4.1~§1.4.4）统一 `direction LR` 并调整类声明/边书写顺序，使「依赖方在左、被依赖方在右、依赖箭头朝右」（`Blackboard` 等读写枢纽在 LR 下自然落中间）；继承型图（§1.4.5 `HalInterface <|-- PycozmoHal/MockHal`）保持纵向、显式标 `direction TB`，父上子下、三角箭头朝上。本轮为**纯类图布局对齐**——仅动各 `classDiagram` 的 `direction` 与声明/边的排列顺序，**未改动任何类集合/类名/关系类型（`*--`/`<|--`/`..>`）/边注释/note/语义**；改前改后图所表达的对象与关系完全等价，仍与 §1.2 模块表、§3、§4.1 一一对应。Mermaid 语法仍合法可渲染。处置记录见 §10.1.3。沿用 v4.4。）
+> 历史：v4.4（M4 认知模型选型更新：用户拍定，把 M4 默认认知模型由 `Gemma 26B-A4B` 改为新发布的 **Gemma 4 12B**（稠密、encoder-free 原生多模态，Q4_K_M 约 8–12GB，经 Ollama），26B-A4B 降为可切换备选。变更范围为**纯选型/配置/文档更新**：①§7.2 主改默认/备选模型及内存口径并补选型权衡（内存减半利于 32GB 与 MediaPipe 共存，稠密 12B 单 token 解码略慢于 A4B 但低频/短输出/非 SLA 用法无实质影响——诚实写明、不吹碾压）；②全文跨节同步 §7.1 行 891 等写死旧内存数字处，确保「M4 默认模型/其内存占用」口径全局一致；③§4.4 认知层 config 块新增显式 `cognition_model` 字段，使「改 config 切模型」有承载；④§7.2 补 M4 待确认点（Ollama 的 Gemma 4 12B tag 是否真支持传图、本机首字延迟/解码速度实测、结构化 JSON 输出在新模型重验、核对 license）；⑤§10 风险「Gemma 结构化输出成熟度」补一句换模型后需重验结构化输出与多模态可用性。**未改动任何架构/接口/仲裁/stale/线程/单写者设计语义**；处置记录见 §10.1.2。沿用 v4.3。）
 > 历史：v4.3（认知层执行线程归属收口：主控拍定，把 v4.2 复审中潜伏并被 DQ-1 清理激化的一处活矛盾——「认知层常驻线程 C M4 才启」与「规则兜底自 M2 起独立可跑、不随任务层跑」自相矛盾，致 M2~M3 无线程执行 `rule_fallback()`、M2「自由活动+心情」交付物落空——一并修掉。收口方向：认知层线程 C **自 M2 起即常驻**，M2~M3 只跑规则兜底这一纯规则 deliberator（不调用 Gemma），M4 才把 Gemma agent loop 叠加进同一线程 C。据此区分两件事：①线程 C 生命周期=M2 起；②Gemma/agent loop 能力=M4 才叠加。逐处订正 §1.1/§1.2/§1.3/§1.4.4/§2 映射表/§3.8/§4.4 config/§5.3/§7.1，根除「认知层 M4 才启」歧义残留；§8/§3.8.3/§3.8 线程模型本已一致、未动。intention 单写者=认知层（含 RuleFallback）、任务层线程 B 只读 intention 均不变——本轮只给规则兜底在 M2~M3 落实执行线程，**未改动仲裁/stale/接口等任何其它设计语义**。处置记录见 §10.1.1.a。沿用 v4.2。）
 > 历史：v4.2（终轮整体复审收口：developer 通读全文发现 v4.1 的 DQ-1 修订有一处同源残影未收口——§1.2 模块表第 59 行 `task/` 的「写黑板字段」列仍写 `intention(兜底时)`，与第 60 行 `cognition/` 形成 intention 双写者表述，是 DQ-1 要根除矛盾在正文表格的残影。纯一致性收口：删去第 59 行 `intention(兜底时)`、仅留 `mood`，并在 §1.2 表后加一句归属注。**未改动任何其它设计语义**；处置记录见 §10.1 终轮复审追加条。沿用 v4.1。）
 > 历史：v4.1（在 §1 架构章节新增**分层类图**（§1.4）与**主流程状态图**（§1.5）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。v4.1 据 developer 对补图的评审修订：删 §1.4.3 误画的「FSM 写 intention」边、改为只读，使补图与 §3.6/§3.8.3/§4.1「intention 单写者=认知层（含其内规则兜底）」一致（DQ-1）；类图新起的聚合名 SafetyReflex/TaskLoop/MoodMap/CognitionLoop 等加 note 标注「示意名、落地可为模块/函数」与「纯数据(YAML)」（S-1/S-3/S-4）；MoodCtx stereotype 标 transient（S-2）；§1.5.1 note 把「连接中断」从安全反射名下析出、归 §6.2 停车重连（S-5）；类图成员类型的 `| None` 改 `nullable` 写法以兼容各 Mermaid 渲染器（S-8）；surprise 复见 mood 链从 FSM 迁移 label 精简、改引 §1.5.2（S-7）。**补图修订未改动任何正文设计语义**。详见文末「本轮（v4.1）补图评审处置记录」。沿用 v3；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
@@ -81,6 +82,8 @@
 下列类图**仅描述主要对象名及其关系**（不含方法细节），按六层组织，与 §1.2 模块表、§3 各小节、§4.1 数据模型一一对应。**核心架构约束在图中体现**：层间不直接调用，一律经 `Blackboard` 写/读交换状态（图中 `..> Blackboard` 的写依赖与 `Blackboard <..` 的读依赖），唯一例外是安全反射经 `HalInterface` 直达停轮（见 §6.1）。
 
 > 关系记号：实线菱形（`*--`）= 组合/拥有；空心三角（`<|--`）= 实现/继承；虚线箭头（`..>`）= 依赖（含"写/读黑板"的数据流，注释说明 write/read/direct）。
+>
+> 布局约定（遵《类图绘制规约》）：继承图纵向（父类在上、子类在下、三角箭头朝上）；依赖图横向（`direction LR`，依赖方在左、被依赖方在右、依赖箭头朝右）。`Blackboard` 等读写枢纽在 LR 下自然落中间（写它的类在其左、它 read 出去喂的类在其右）。自动布局只逼近边位、不保证像素级锚点。
 
 #### 1.4.1 共享层：黑板与数据对象（world/ + 复合数据对象）
 
@@ -88,6 +91,7 @@
 
 ```mermaid
 classDiagram
+    direction LR
     class Blackboard {
         +person : Person nullable
         +cube : Cube nullable
@@ -102,7 +106,6 @@ classDiagram
     class BlackboardSnapshot {
         <<immutable>>
     }
-    class BlackboardLogger
     class Person {
         <<immutable>>
         +visible : bool
@@ -116,6 +119,7 @@ classDiagram
         +tap_seq : int
         +move_seq : int
     }
+    class BlackboardLogger
     class MoodCtx {
         <<task-internal transient>>
         +following : bool
@@ -126,9 +130,9 @@ classDiagram
     Blackboard *-- Person : 持有当前引用
     Blackboard *-- Cube : 持有当前引用
     Blackboard ..> BlackboardSnapshot : snapshot() 同一把锁内产出
+    Blackboard ..> BlackboardLogger : 字段/事件变化输出
     BlackboardSnapshot ..> Person : 浅拷贝引用
     BlackboardSnapshot ..> Cube : 浅拷贝引用
-    Blackboard ..> BlackboardLogger : 字段/事件变化输出
     note for MoodCtx "任务层内部瞬态协作对象，不入黑板（§3.3.4）；由调用方每拍构造传给 MoodTranslator"
     note for Blackboard "单写者 + 不可变对象整体替换 + 同一把锁内周期快照（§4.2 / M-D）。成员类型中 nullable = 可空（对应 §4.1 的 float | None / 整体为 None，此处用 nullable 写法以兼容各 Mermaid 渲染器）"
 ```
@@ -139,21 +143,22 @@ classDiagram
 
 ```mermaid
 classDiagram
+    direction LR
+    class HalInterface
     class PoseDetector
     class VisibleDebouncer {
         +visible : bool
     }
     class SafetyReflex
     class Blackboard
-    class HalInterface
 
+    HalInterface ..> PoseDetector : on_camera_frame 覆盖式最新帧
+    HalInterface ..> SafetyReflex : on_cliff 回调（感知层线程内）
     PoseDetector *-- VisibleDebouncer : 去抖原始判定
     PoseDetector ..> Blackboard : write person（visible/cx/size/last_seen_ts）
     PoseDetector ..> Blackboard : write cube / cliff_detected / battery
-    SafetyReflex ..> HalInterface : direct stop_wheels（不经黑板，§6.1）
     SafetyReflex ..> Blackboard : write cliff_detected（供上层观测/恢复）
-    HalInterface ..> PoseDetector : on_camera_frame 覆盖式最新帧
-    HalInterface ..> SafetyReflex : on_cliff 回调（感知层线程内）
+    SafetyReflex ..> HalInterface : direct stop_wheels（不经黑板，§6.1）
     note for SafetyReflex "SafetyReflex 为安全反射机制（safety/，§6.1）的示意性聚合名，落地可为 on_cliff 回调内的函数/模块；感知层内闭环反射，安全维度仲裁最高优先级，不可被上层覆盖"
     note for VisibleDebouncer "迟滞计数器：VISIBLE_ON/OFF_FRAMES；M1 与 M3 共用同一实现（§3.2）"
 ```
@@ -164,6 +169,7 @@ classDiagram
 
 ```mermaid
 classDiagram
+    direction LR
     class TaskLoop
     class FSM {
         FREE_ROAM
@@ -171,27 +177,27 @@ classDiagram
         FOLLOW
         SEARCH
     }
+    class VisualServo
     class MoodTranslator {
         surprise: IDLE / HOLDING
         +hold_deadline : float
     }
-    class VisualServo
     class MoodCtx
-    class MoodMap
     class Blackboard
+    class MoodMap
     class HalInterface
 
     TaskLoop *-- FSM : 持有并每拍 tick
     TaskLoop *-- MoodTranslator : 持有并每拍 tick
     FSM *-- VisualServo : FOLLOW 态调用（M3）
-    TaskLoop ..> Blackboard : read snapshot（每周期）
     TaskLoop ..> MoodCtx : 每拍构造（following/visible/moving）
+    TaskLoop ..> Blackboard : read snapshot（每周期）
     MoodTranslator ..> MoodCtx : tick 入参（场景上下文，不读黑板 intention/FSM）
     MoodTranslator ..> MoodMap : 查表取 动画/表情/LED
     MoodTranslator ..> Blackboard : write mood / mood_source / mood_ts
-    Blackboard ..> FSM : read intention（做迁移，FSM 不写 intention）
     MoodTranslator ..> HalInterface : 下发 animation / face / led
     VisualServo ..> HalInterface : 下发 drive_wheels（差动轮速）
+    Blackboard ..> FSM : read intention（做迁移，FSM 不写 intention）
     note for FSM "FSM_STATE 为任务层内部状态，不写黑板（§4.1）；FSM 只读 intention 做迁移、不写 intention。intention 写者统一为认知层（含其内规则兜底 RuleFallback，§1.4.4 / §3.8.3 / §4.1 单写者契约）"
     note for MoodTranslator "mood 唯一写者；即时心情(surprise/happy/playful)与低频来源(规则/认知)统一在此仲裁（§3.4）"
     note for MoodMap "纯数据映射(YAML，§4.3)，非逻辑类；类名为查表语义示意"
@@ -204,6 +210,7 @@ classDiagram
 
 ```mermaid
 classDiagram
+    direction LR
     class CognitionLoop
     class GemmaProvider
     class RuleFallback
@@ -224,6 +231,7 @@ HAL 是唯一触达硬件的边界，`PycozmoHal` 为真实现、`MockHal` 供�
 
 ```mermaid
 classDiagram
+    direction TB
     class HalInterface {
         <<interface>>
     }
@@ -1041,3 +1049,19 @@ v1 草案的四个开放问题（D-1/D-2/D-3/N-1）已在本轮（v2）经 devel
 **边界**：本轮纯选型/配置/文档更新，**未改动任何架构、接口、仲裁、stale、线程模型、单写者等设计语义**；稠密 12B 解码略慢对低频/短输出/非 SLA 的用法无实质影响，不牵动频率/线程模型等设计取舍（无新设计疑问）。**已与研发对齐口径、无遗留【设计疑问】，可提交用户决策。**
 
 > 关联提示（不在本文修改范围、留待用户决策）：**PRD 也点名了旧模型 26B-A4B**——PRD §6 非功能性需求（行 296「默认本地 Gemma 4 26B-A4B（4-bit，权重约 13–15GB，含 KV 峰值约 16–18GB）」）、§8 已确认决策补录（行 329 决策 5「Gemma 选型：维持 26B-A4B」）、§9 风险（行 340「本地模型资源峰值：Gemma + MediaPipe + pycozmo 同台 32GB」）。本轮只改 FDS、不动 PRD（属另一条 prd 流程）；如需同步 PRD 选型口径，建议用户另走 prd 流程。
+
+#### 10.1.3 §1.4 类图布局按《类图绘制规约》对齐（v4.5）
+
+> 背景：fds skill 撰写要求新增《类图绘制规约》——继承关系纵向（父类在上、子类在下、三角箭头朝上）、依赖关系横向（依赖方在左、被依赖方在右、依赖箭头朝右）。本轮据此把 §1.4 各类图的**渲染布局**对齐到规约。**纯布局对齐**：仅动各 `classDiagram` 的 `direction` 与类声明/边书写顺序，**未改动任何类集合、类名、关系类型（`*--`/`<|--`/`..>`）、边注释（write/read/direct/decide 等）、note 文字与 §1.4 引言/「关系记号」图例语义**；改前改后图所表达的对象与关系完全等价，仍与 §1.2 模块表、§3、§4.1 一一对应。
+
+| 落点 | 布局调整 | 是否动语义 |
+|---|---|---|
+| §1.4.1 共享层 | 依赖型图（`..>` 为主，含写/读黑板数据流），加 `direction LR`；`Blackboard` 作读写枢纽在 LR 下自然落中间（写它的类在左、其 snapshot/log 出去的在右），声明/边顺序按「依赖在左、被依赖在右」排列 | 无 |
+| §1.4.2 感知层 | 依赖型图，加 `direction LR`；`HalInterface→PoseDetector/SafetyReflex`、`PoseDetector/SafetyReflex ..> Blackboard` 等沿「依赖方在左、被依赖方在右、箭头朝右」排列 | 无 |
+| §1.4.3 任务层 | 依赖型图，加 `direction LR`；`TaskLoop/FSM/MoodTranslator/VisualServo` 等为依赖方在左，`MoodCtx/Blackboard/MoodMap/HalInterface` 为被依赖方在右（`Blackboard ..> FSM : read intention` 的读依赖方向保持原样不动） | 无 |
+| §1.4.4 认知层 | 依赖型图，加 `direction LR`；`CognitionLoop` 为依赖方在左，`GemmaProvider/RuleFallback/Blackboard` 在右 | 无 |
+| §1.4.5 底层 | 继承型图（`HalInterface <|-- PycozmoHal/MockHal`），显式标 `direction TB` 固定纵向意图——父类 `HalInterface` 在上、`PycozmoHal/MockHal` 在下、三角箭头朝上，原默认 TB 行为未被破坏 | 无 |
+| §1.4 引言/图例 | 补「布局约定」一句（继承纵向、依赖横向、`Blackboard` 居中），让读者知晓布局约定 | 无（仅说明性补语） |
+| 顶部状态行 | 升 v4.5、加变更摘要；v4.4 移入历史行 | — |
+
+**边界与一致性**：§1.4.1~§1.4.5 各图**要么纯依赖、要么纯继承**，不存在「同一图内继承与依赖并存致规则 2 与 3 冲突」的情况，故无需取舍、无【设计疑问】。自动布局只逼近「边位」、不保证像素级锚点，达标判据＝「父在上/子在下、依赖在左/被依赖在右、箭头方向正确」（已在引言图例与本节写明）。所有 `direction` 写在 `classDiagram` 之后、类声明之前那一行，Mermaid 语法仍合法可渲染。**未改动任何设计语义/需求覆盖/接口/其它章节。已与研发对齐（纯布局对齐、无语义变更），无遗留【设计疑问】。**
