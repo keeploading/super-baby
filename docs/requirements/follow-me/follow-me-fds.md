@@ -1,11 +1,14 @@
 # Cozmo「跟人走」第一阶段 —— 功能设计文档（FDS）
 
-> 状态：v4.6（**纯文档澄清**——消解读者对 `world/` 与 `moods/` 两模块定位的疑问，回应用户拍板「保持现有按层/角色的目录结构不变，只把文档写清楚」：写清 `world/` 是有并发行为的**共享状态基础设施**（黑板 `Blackboard` 类：线程安全字段存储 + 快照 + 结构化日志，扛核心并发契约），而**非被动数据**，故按层组织、不并入 data/types；`moods/` 是**纯数据映射表**（mood→动画/表情/LED，§4.3，不含逻辑）；整个目录树按「架构分层/角色」组织，不另设横向 data/types 桶。仅在 §1.2 模块表（`world/`/`moods/` 行的核心职责措辞 + 表后新增一条性质区分注）与 §1.4.1 标题引言处补**解释性措辞**。**未改动任何目录名/结构/字段/接口/契约/设计语义**——不改 `world/`→`blackboard/`、不建 `types//data/`、不移动 `moods/`、不动任何对象/关系/语义。处置记录见 §10.1.4。沿用 v4.5。）
+> 状态：v4.8（**纯补图**——回应用户反馈「现有状态图表达不够直观」，针对主流程**新增**一组「主流程序列图」（§1.7），作为 §1.6 状态图的**交互时序视角补充**（状态图看状态迁移、序列图看跨层对象交互与时序，二者并存互为视角，**保留状态图不动**）。新增四张 Mermaid `sequenceDiagram`：§1.7.1 三层+黑板一拍数据流主干、§1.7.2 跟随主流程（FOLLOW→丢人→SEARCH→重见恢复）、§1.7.3 surprise 时序边界四点、§1.7.4 安全反射闭环。participant 与消息一律沿用 §1.2 模块表/§1.5 类图/§4.1 黑板字段既有命名，忠实反映既有的读/写黑板、调用方向、周期/线程归属。新增节位于 §1.6 之后、§2 之前，§2 及以后编号不受影响、无需顺延。**未改动任何既有设计语义/对象/状态/字段/接口/契约**——纯补图。处置记录见 §10.1.6。沿用 v4.7。v4.8 内据 developer 序列图评审微调（仍纯补图、零新语义）：①§1.7.1 为 cliff_detected 加一句澄清 Note，写明其实际写者是感知层内 safety（见 §1.7.4）、此处合并表示感知侧写事实，消除"P 与 SR 像两个写者"的读图歧义；②§1.7.1 `battery`→`set_battery`，使四个写黑板消息写法统一为 set_*；③§1.7.2 补一条 `C->>BB: set_intention(follow)` 消除认知层 C 空泳道并呼应正文"认知/规则写 intention=follow 共同促成进 FOLLOW"（C 本就是 intention 唯一合法写者，与"intention 单写者=认知层含 RuleFallback、FSM 只读 intention"契约一致）；④§1.7.3 到期落点 Note 去掉 `<br/>`、改纯文本与其它图风格统一。）
+> 历史：v4.7（**纯补图**——按《撰写要求》新增强制项「FDS 必须含一张模块图（本次设计涉及的各模块及模块间依赖关系，箭头由依赖方指向被依赖方）」补齐当前缺失的模块图。新增 §1.3「模块依赖图（模块粒度）」一小节（置于原 §1.2 模块表之后、原 §1.3「关键架构决策」之前），用 Mermaid `flowchart LR` 画出 `perception`/`safety`/`task`/`cognition`/`world`(Blackboard)/`hal`/`moods` 七个模块及其依赖边，并配文字说明整体结构与边界；该图与 §1.1 总体结构 ASCII 图、§1.2 模块表读/写黑板列、§1.4 分层类图 `..>` 依赖**完全自洽**。因新增小节，原 §1.3「关键架构决策」顺延为 §1.4、原 §1.4「分层类图」顺延为 §1.5、原 §1.5「主流程状态图」顺延为 §1.6（含其下 §1.4.1~§1.4.5→§1.5.1~§1.5.5、§1.5.1~§1.5.2→§1.6.1~§1.6.2），并同步更新全文对这些章节号的交叉引用。**本轮仅新增模块图及其文字说明、并为容纳它做章节编号顺延/交叉引用更新——未改动任何既有设计语义/对象/关系/字段/接口/契约/目录结构。**处置记录见 §10.1.5。沿用 v4.6。）
+> 历史：v4.6（**纯文档澄清**——消解读者对 `world/` 与 `moods/` 两模块定位的疑问，回应用户拍板「保持现有按层/角色的目录结构不变，只把文档写清楚」：写清 `world/` 是有并发行为的**共享状态基础设施**（黑板 `Blackboard` 类：线程安全字段存储 + 快照 + 结构化日志，扛核心并发契约），而**非被动数据**，故按层组织、不并入 data/types；`moods/` 是**纯数据映射表**（mood→动画/表情/LED，§4.3，不含逻辑）；整个目录树按「架构分层/角色」组织，不另设横向 data/types 桶。仅在 §1.2 模块表（`world/`/`moods/` 行的核心职责措辞 + 表后新增一条性质区分注）与 §1.4.1 标题引言处补**解释性措辞**。**未改动任何目录名/结构/字段/接口/契约/设计语义**——不改 `world/`→`blackboard/`、不建 `types//data/`、不移动 `moods/`、不动任何对象/关系/语义。处置记录见 §10.1.4。沿用 v4.5。）
 > 历史：v4.5（§1.4 类图布局按《类图绘制规约》对齐：依赖型图（§1.4.1~§1.4.4）统一 `direction LR` 并调整类声明/边书写顺序，使「依赖方在左、被依赖方在右、依赖箭头朝右」（`Blackboard` 等读写枢纽在 LR 下自然落中间）；继承型图（§1.4.5 `HalInterface <|-- PycozmoHal/MockHal`）保持纵向、显式标 `direction TB`，父上子下、三角箭头朝上。本轮为**纯类图布局对齐**——仅动各 `classDiagram` 的 `direction` 与声明/边的排列顺序，**未改动任何类集合/类名/关系类型（`*--`/`<|--`/`..>`）/边注释/note/语义**；改前改后图所表达的对象与关系完全等价，仍与 §1.2 模块表、§3、§4.1 一一对应。Mermaid 语法仍合法可渲染。处置记录见 §10.1.3。沿用 v4.4。）
 > 历史：v4.4（M4 认知模型选型更新：用户拍定，把 M4 默认认知模型由 `Gemma 26B-A4B` 改为新发布的 **Gemma 4 12B**（稠密、encoder-free 原生多模态，Q4_K_M 约 8–12GB，经 Ollama），26B-A4B 降为可切换备选。变更范围为**纯选型/配置/文档更新**：①§7.2 主改默认/备选模型及内存口径并补选型权衡（内存减半利于 32GB 与 MediaPipe 共存，稠密 12B 单 token 解码略慢于 A4B 但低频/短输出/非 SLA 用法无实质影响——诚实写明、不吹碾压）；②全文跨节同步 §7.1 行 891 等写死旧内存数字处，确保「M4 默认模型/其内存占用」口径全局一致；③§4.4 认知层 config 块新增显式 `cognition_model` 字段，使「改 config 切模型」有承载；④§7.2 补 M4 待确认点（Ollama 的 Gemma 4 12B tag 是否真支持传图、本机首字延迟/解码速度实测、结构化 JSON 输出在新模型重验、核对 license）；⑤§10 风险「Gemma 结构化输出成熟度」补一句换模型后需重验结构化输出与多模态可用性。**未改动任何架构/接口/仲裁/stale/线程/单写者设计语义**；处置记录见 §10.1.2。沿用 v4.3。）
 > 历史：v4.3（认知层执行线程归属收口：主控拍定，把 v4.2 复审中潜伏并被 DQ-1 清理激化的一处活矛盾——「认知层常驻线程 C M4 才启」与「规则兜底自 M2 起独立可跑、不随任务层跑」自相矛盾，致 M2~M3 无线程执行 `rule_fallback()`、M2「自由活动+心情」交付物落空——一并修掉。收口方向：认知层线程 C **自 M2 起即常驻**，M2~M3 只跑规则兜底这一纯规则 deliberator（不调用 Gemma），M4 才把 Gemma agent loop 叠加进同一线程 C。据此区分两件事：①线程 C 生命周期=M2 起；②Gemma/agent loop 能力=M4 才叠加。逐处订正 §1.1/§1.2/§1.3/§1.4.4/§2 映射表/§3.8/§4.4 config/§5.3/§7.1，根除「认知层 M4 才启」歧义残留；§8/§3.8.3/§3.8 线程模型本已一致、未动。intention 单写者=认知层（含 RuleFallback）、任务层线程 B 只读 intention 均不变——本轮只给规则兜底在 M2~M3 落实执行线程，**未改动仲裁/stale/接口等任何其它设计语义**。处置记录见 §10.1.1.a。沿用 v4.2。）
 > 历史：v4.2（终轮整体复审收口：developer 通读全文发现 v4.1 的 DQ-1 修订有一处同源残影未收口——§1.2 模块表第 59 行 `task/` 的「写黑板字段」列仍写 `intention(兜底时)`，与第 60 行 `cognition/` 形成 intention 双写者表述，是 DQ-1 要根除矛盾在正文表格的残影。纯一致性收口：删去第 59 行 `intention(兜底时)`、仅留 `mood`，并在 §1.2 表后加一句归属注。**未改动任何其它设计语义**；处置记录见 §10.1 终轮复审追加条。沿用 v4.1。）
 > 历史：v4.1（在 §1 架构章节新增**分层类图**（§1.4）与**主流程状态图**（§1.5）；纯描述性补图，忠实反映既有模块/对象/状态，**无任何设计语义/对象/状态/字段变更**。v4.1 据 developer 对补图的评审修订：删 §1.4.3 误画的「FSM 写 intention」边、改为只读，使补图与 §3.6/§3.8.3/§4.1「intention 单写者=认知层（含其内规则兜底）」一致（DQ-1）；类图新起的聚合名 SafetyReflex/TaskLoop/MoodMap/CognitionLoop 等加 note 标注「示意名、落地可为模块/函数」与「纯数据(YAML)」（S-1/S-3/S-4）；MoodCtx stereotype 标 transient（S-2）；§1.5.1 note 把「连接中断」从安全反射名下析出、归 §6.2 停车重连（S-5）；类图成员类型的 `| None` 改 `nullable` 写法以兼容各 Mermaid 渲染器（S-8）；surprise 复见 mood 链从 FSM 迁移 label 精简、改引 §1.5.2（S-7）。**补图修订未改动任何正文设计语义**。详见文末「本轮（v4.1）补图评审处置记录」。沿用 v3；v2 已吸收 developer 代码评审：必须改 M-A~M-D + 建议改 S-1~S-10 + 设计疑问 DQ-1~DQ-4 + 需求澄清 CQ-1/CQ-2 全部处理并落盘）
+> 历史编号冻结声明：以上「历史/v4.x」版本说明块、以及 §10.1.1~§10.1.4 历史处置记录中出现的章节号（如 §1.4/§1.5、§1.4.1、§1.4.3 等），均为该条目撰写时点的当时编号，不随后续章节顺延而改写；查阅历史项时请以其撰写时点的编号语境理解，勿照旧号在现行正文中跳转。
 > 上游需求：`docs/requirements/follow-me/follow-me-prd.md`（PRD v8，已定稿）
 > 背景构想：`docs/ideas/follow-me-idea.md`
 > 平台：Mac mini（Apple Silicon / 32GB）+ 实体 Cozmo，底层 [pycozmo](https://github.com/zayfod/pycozmo)
@@ -69,18 +72,46 @@
 
 > 注：`safety/` 在物理上运行于感知层线程（与悬崖/碰撞回调同步），逻辑上是"感知层内闭环的反射"，故归入感知层周期。
 >
-> 注：`intention` 的唯一写者是认知层（含其内规则兜底 RuleFallback，§3.8.3）——故本表中 `intention` 的写归 `cognition/` 行、不挂 `task/` 行（§4.1 / §1.4.4 / PRD §11 单写者契约）。规则兜底逻辑归属 `cognition/`、不随任务层跑；它由认知层常驻线程 C 执行，而**线程 C 自 M2 起即常驻启动**（§7.1 / §1.3 决策 1）——故规则兜底**自 M2 起即独立可跑**（M2~M3 线程 C 只跑这一纯规则 deliberator、不调用 Gemma），M4 才把 Gemma agent loop 叠加进同一线程 C（§3.8.3）。注意区分两件事：①线程 C 的生命周期（自 M2 起）与 ②Gemma/agent loop 能力（M4 才叠加）——二者不是一回事。`task/` 只读 intention 做 FSM 迁移、不写 intention（§3.6 / §1.4.3 FSM note）。
+> 注：`intention` 的唯一写者是认知层（含其内规则兜底 RuleFallback，§3.8.3）——故本表中 `intention` 的写归 `cognition/` 行、不挂 `task/` 行（§4.1 / §1.5.4 / PRD §11 单写者契约）。规则兜底逻辑归属 `cognition/`、不随任务层跑；它由认知层常驻线程 C 执行，而**线程 C 自 M2 起即常驻启动**（§7.1 / §1.4 决策 1）——故规则兜底**自 M2 起即独立可跑**（M2~M3 线程 C 只跑这一纯规则 deliberator、不调用 Gemma），M4 才把 Gemma agent loop 叠加进同一线程 C（§3.8.3）。注意区分两件事：①线程 C 的生命周期（自 M2 起）与 ②Gemma/agent loop 能力（M4 才叠加）——二者不是一回事。`task/` 只读 intention 做 FSM 迁移、不写 intention（§3.6 / §1.5.3 FSM note）。
 >
 > 注（`world/` 与 `moods/` 性质不同，勿混为"数据"）：`world/` 是**有并发行为的共享状态基础设施**——它就是黑板（`Blackboard` 类），承担线程安全字段存储 + 快照（`snapshot()` 同锁内一致视图）+ 结构化日志，并扛着整体原子替换、快照一致性、intention 单写者等核心并发契约（§4.2）；命名取 world model / 世界模型惯用语（agent 对当前世界的信念状态），与认知层读的 `world_summary`（世界摘要）配套自洽（world → world_summary），它也承载 `mood`/`intention` 等 agent 内部状态（不全是"外部世界"）。因其有行为、是一等基础设施，**不降级为被动数据，故按层组织、不并入 data/types**。而 `moods/` 是**纯数据映射表**（mood→动画/表情/LED，§4.3，无逻辑）。本工程整个目录树按"架构分层/角色"组织（每目录对应 §1.1 的一个架构元素），**不另设横向 data/types 桶**。
 
-### 1.3 关键架构决策（需评审重点看）
+### 1.3 模块依赖图（模块粒度）
+
+本图按 §1.2 模块表的粒度（一个目录=一个模块），用带箭头的边标出**模块间依赖关系**（箭头由依赖方指向被依赖方，`A --> B` 读作「A 依赖 B」），**不下钻到类/函数**。它是 §1.1 总体结构 ASCII 图、§1.2 读/写黑板列、§1.5 分层类图 `..>` 依赖在「模块层级」的汇总视图，三者完全自洽。
+
+整体结构与边界：三层（`perception`/`task`/`cognition`）都依赖 `world`（Blackboard）这一**共享状态枢纽**来交换状态——下层向黑板写事实、上层从黑板读事实/写目标，层间不互相直接调用（故图中没有层与层之间的直接边，只有各层指向 `world` 的边）；`task` 还依赖 `hal`（下发电机/表情/动画/LED）与 `moods`（查心情映射表）；`perception` 依赖 `hal`（摄像头帧/传感器回调）；`safety` 内嵌于感知层，既依赖 `world`（写 `cliff_detected` 供上层观测/恢复），又依赖 `hal`——其中「`safety --> hal` 直达停轮」是 §6.1 的安全反射例外，**不经黑板**（图中以虚线特殊边 + 标注体现）。`world`/`hal`/`moods` 为被依赖的底层/枢纽，无出边。
+
+```mermaid
+flowchart LR
+    perception["perception/<br/>感知层"]
+    safety["safety/<br/>安全反射（感知层内）"]
+    task["task/<br/>任务层 FSM+mood+伺服"]
+    cognition["cognition/<br/>认知层 线程C"]
+    world["world/<br/>Blackboard 共享状态枢纽"]
+    hal["hal/<br/>HAL 唯一触达硬件边界"]
+    moods["moods/<br/>心情映射表（纯数据）"]
+
+    perception --> world
+    perception --> hal
+    task --> world
+    task --> hal
+    task --> moods
+    cognition --> world
+    safety --> world
+    safety -. 直达停轮·不经黑板（§6.1） .-> hal
+```
+
+> 说明：实线箭头=经黑板/常规依赖；虚线箭头（`safety -. .-> hal`）=安全反射经 HAL 直达停轮的例外路径（不经黑板，§6.1，PRD US4.4「不可绕过」）。`safety` 与 `perception` 共用感知层线程、逻辑上是感知层内闭环的反射，故在图中并列于感知侧。模块粒度对齐 §1.2 模块表，依赖方向与 §1.2 读/写黑板列、§1.5 分层类图 `..>` 一致。
+
+### 1.4 关键架构决策（需评审重点看）
 
 1. **单进程多线程，而非多进程**：三层共享黑板是高频读写的核心耦合点，进程内共享内存 + 锁的成本远低于跨进程 IPC/序列化；MediaPipe 与 pycozmo 均为进程内库；Gemma 经 Ollama 走本地 HTTP（本身就是跨进程的模型服务，认知层只持有 client）。故主程序为单进程，感知/任务/认知各起一个线程（认知层常驻线程 C 自 M2 起即启动：M2~M3 只跑规则兜底这一纯规则 deliberator，M4 才把 Gemma agent loop 叠加进同一线程 C——线程 C 的生命周期自 M2 起，Gemma 能力 M4 才叠加，二者区分见 §3.8.3 / §7.1）。详见 §7.1。
 2. **黑板并发模型 = 单写者 + 不可变对象整体原子替换 + 同一把锁内周期快照**：直接落实 PRD US4.1 并发契约（复合对象构造后不可变、所有 `set_*` 与 `snapshot()` 走同一把 `threading.Lock`，不依赖 GIL）。详见 §4.2。
 3. **mood-translator 从 M1 的独立轻量单元，到 M2 长成任务层 FSM 的一个子模块**——同一份代码增量演进、接口不变、不推翻。详见 §3.3 与 §8。
 4. **安全维度仲裁固定 安全反射 > 规则 > 模型；心情维度固定 事件即时心情 > 防抖窗口最新有效来源**。仲裁逻辑集中在任务层（mood）与感知层（safety），不分散。详见 §3.4。
 
-### 1.4 分层类图（主要对象与关系）
+### 1.5 分层类图（主要对象与关系）
 
 下列类图**仅描述主要对象名及其关系**（不含方法细节），按六层组织，与 §1.2 模块表、§3 各小节、§4.1 数据模型一一对应。**核心架构约束在图中体现**：层间不直接调用，一律经 `Blackboard` 写/读交换状态（图中 `..> Blackboard` 的写依赖与 `Blackboard <..` 的读依赖），唯一例外是安全反射经 `HalInterface` 直达停轮（见 §6.1）。
 
@@ -88,7 +119,7 @@
 >
 > 布局约定（遵《类图绘制规约》）：继承图纵向（父类在上、子类在下、三角箭头朝上）；依赖图横向（`direction LR`，依赖方在左、被依赖方在右、依赖箭头朝右）。`Blackboard` 等读写枢纽在 LR 下自然落中间（写它的类在其左、它 read 出去喂的类在其右）。自动布局只逼近边位、不保证像素级锚点。
 
-#### 1.4.1 共享层：黑板与数据对象（world/ + 复合数据对象）
+#### 1.5.1 共享层：黑板与数据对象（world/ + 复合数据对象）
 
 黑板是层间唯一共享状态载体。注意本图含两类性质不同的成员：`Blackboard` 是**有行为的黑板机器**（线程安全存储 + 快照 + 结构化日志，§4.2），`Person`/`Cube`/`MoodCtx` 等则是**被它持有的构造后不可变值对象**（§4.1/§4.2，仅标关键字段以体现数据契约，不画方法）。二者都属共享层、同放 `world/` 一处，无需拆出。
 
@@ -140,7 +171,7 @@ classDiagram
     note for Blackboard "单写者 + 不可变对象整体替换 + 同一把锁内周期快照（§4.2 / M-D）。成员类型中 nullable = 可空（对应 §4.1 的 float | None / 整体为 None，此处用 nullable 写法以兼容各 Mermaid 渲染器）"
 ```
 
-#### 1.4.2 感知层（perception/ + safety/）
+#### 1.5.2 感知层（perception/ + safety/）
 
 感知层把帧/传感器事实写入黑板；安全反射在本层内闭环，经 HAL 直达停轮、不经黑板上送（§6.1）。
 
@@ -166,7 +197,7 @@ classDiagram
     note for VisibleDebouncer "迟滞计数器：VISIBLE_ON/OFF_FRAMES；M1 与 M3 共用同一实现（§3.2）"
 ```
 
-#### 1.4.3 任务层（task/：FSM + mood-translator + 视觉伺服）
+#### 1.5.3 任务层（task/：FSM + mood-translator + 视觉伺服）
 
 任务层每拍先 `snapshot()` 再决策；FSM 负责状态/意图/行为原语，`MoodTranslator` 负责 mood 仲裁/计时/翻译，`VisualServo` 负责 M3 控制律。mood 字段唯一写者是 `MoodTranslator`（§3.3.4）。
 
@@ -201,13 +232,13 @@ classDiagram
     MoodTranslator ..> HalInterface : 下发 animation / face / led
     VisualServo ..> HalInterface : 下发 drive_wheels（差动轮速）
     Blackboard ..> FSM : read intention（做迁移，FSM 不写 intention）
-    note for FSM "FSM_STATE 为任务层内部状态，不写黑板（§4.1）；FSM 只读 intention 做迁移、不写 intention。intention 写者统一为认知层（含其内规则兜底 RuleFallback，§1.4.4 / §3.8.3 / §4.1 单写者契约）"
+    note for FSM "FSM_STATE 为任务层内部状态，不写黑板（§4.1）；FSM 只读 intention 做迁移、不写 intention。intention 写者统一为认知层（含其内规则兜底 RuleFallback，§1.5.4 / §3.8.3 / §4.1 单写者契约）"
     note for MoodTranslator "mood 唯一写者；即时心情(surprise/happy/playful)与低频来源(规则/认知)统一在此仲裁（§3.4）"
     note for MoodMap "纯数据映射(YAML，§4.3)，非逻辑类；类名为查表语义示意"
     note for TaskLoop "TaskLoop 为任务层线程 B 入口骨架的示意性聚合名（§5.3/§7.1/§8），落地可为模块/函数"
 ```
 
-#### 1.4.4 认知层（cognition/：线程 C 自 M2 起，M2~M3 仅规则兜底，M4 叠加 Gemma）
+#### 1.5.4 认知层（cognition/：线程 C 自 M2 起，M2~M3 仅规则兜底，M4 叠加 Gemma）
 
 认知层在常驻线程 C 串行决策，读黑板摘要、写 intention/mood，永不下发电机指令。线程 C 自 M2 起即常驻：M2~M3 只运行 `RuleFallback`（纯规则、不调用 Gemma），M4 才把 `GemmaProvider` 叠加进同一线程 C，模型不可达/超时/stale 时仍由规则兜底接管。
 
@@ -228,7 +259,7 @@ classDiagram
     note for CognitionLoop "线程 C 自 M2 起常驻（M2~M3 只跑 RuleFallback），GemmaProvider 自 M4 叠加——区分 线程 C 生命周期(M2 起) 与 Gemma 能力(M4 才叠加)；CognitionLoop/GemmaProvider/RuleFallback 为逻辑示意名，对应正文模块级接口 decide(world_summary, image) 与 cognition.rule_fallback()（§3.8），落地可为函数/类"
 ```
 
-#### 1.4.5 底层（hal/）
+#### 1.5.5 底层（hal/）
 
 HAL 是唯一触达硬件的边界，`PycozmoHal` 为真实现、`MockHal` 供无硬件联调；内部 `_cliff_active` 硬闸是安全反射的最后防线（§5.1 契约 1 / §6.1）。
 
@@ -249,9 +280,9 @@ classDiagram
     note for HalInterface "上层只依赖抽象接口；安全反射经此 direct stop_wheels"
 ```
 
-### 1.5 主流程状态图
+### 1.6 主流程状态图
 
-#### 1.5.1 任务层 FSM 四态主流程（§3.6）
+#### 1.6.1 任务层 FSM 四态主流程（§3.6）
 
 迁移条件均取自 §3.6 现有 ASCII 图与 §3.6.1~§3.6.3 文字（visible 去抖、intention、T1/T2/T3、PLAY_CUBE_IDLE_TIMEOUT、cube 断连等）。两类"立即停"均旁路 FSM、不作为状态迁移画入图内，仅以注释标注：悬崖/碰撞由安全反射处理（§6.1），连接中断由停车重连处理（§6.2）——二者口径不同、不混称。
 
@@ -268,7 +299,7 @@ stateDiagram-v2
 
     FOLLOW --> SEARCH : visible 去抖丢失 > T1
 
-    SEARCH --> FOLLOW : visible 去抖重见（复见 mood 链见 §1.5.2）
+    SEARCH --> FOLLOW : visible 去抖重见（复见 mood 链见 §1.6.2）
     SEARCH --> FREE_ROAM : 进入 anxious 起 > T3 仍未重见 → calm
 
     note right of SEARCH
@@ -281,7 +312,7 @@ stateDiagram-v2
     end note
 ```
 
-#### 1.5.2 surprise 心情生命周期主流程（§3.5）
+#### 1.6.2 surprise 心情生命周期主流程（§3.5）
 
 mood-translator 内部的 surprise 子状态（`IDLE / HOLDING`）与降级落点，取自 §3.5 四点实现与 §3.3.4 入参契约。降级落点由 `tick(snap, ctx, now)` 入参 `ctx.following`/`ctx.visible` 决定；细节（视觉伺服分区、字段级兜底等）不在此图展开。
 
@@ -303,6 +334,138 @@ stateDiagram-v2
         T1 计时由 last_seen_ts 独立驱动，不读 surprise 子状态（§3.5 ②）；
         安全反射可随时打断 surprise
     end note
+```
+
+### 1.7 主流程序列图
+
+状态图（§1.6）从"状态如何迁移"看主流程；本节序列图从"跨层对象如何交互、按什么时序"看同一批主流程，二者**并存、互为视角**。下列序列图的 participant 与消息忠实沿用 §1.2 模块表、§1.5 分层类图、§4.1 黑板字段的既有命名与既有数据流向（读/写黑板、调用方向、周期/线程归属），**不引入任何新对象/状态/字段/接口/语义**——纯补图。约定：`Blackboard` 作为层间唯一交换枢纽显式画为一个 participant，各层"写事实/读快照/写目标"均落在它身上（呼应 §1.1「层间不直接调用、只经黑板」）；周期/线程（30Hz/10Hz/线程 C 等）以 note 标注。
+
+#### 1.7.1 三层 + 黑板一拍数据流主干（§1.1 / §4.2 / §3.8）
+
+这条是全系统的"骨架时序"：感知层（线程 A）写事实 → 黑板 → 任务层（线程 B）每拍快照后决策并经 HAL 下发 → 认知层（线程 C）旁路读摘要写 intention/mood。三层各自独立周期、不互相直接调用，全部经 `Blackboard` 交换状态；`snapshot()` 在同一把锁内取一致视图（§4.2）。关键时序点：①感知层覆盖式写 person/cube；②任务层每拍"先 snapshot 再决策再下发"；③认知层串行、慢推理不阻塞 A/B（§7.1）。对应 §1.6.1 FSM 状态图的"每拍读 intention 做迁移"的底层交互。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant HAL as HalInterface
+    participant P as perception(线程A)
+    participant BB as Blackboard
+    participant T as task(线程B)
+    participant C as cognition(线程C)
+
+    Note over P: ~30Hz / 帧回调
+    HAL-->>P: on_camera_frame 覆盖式最新帧
+    P->>P: Pose 推理 + VisibleDebouncer 去抖
+    P->>BB: set_person / set_cube / set_cliff_detected / set_battery（整体原子替换）
+    Note over P,BB: cliff_detected 实际由感知层内的 safety 写（见 §1.7.4），此处合并为"感知侧写事实"表示，非另立写者
+
+    Note over T: ~10Hz：先 snapshot 再决策再下发
+    T->>BB: snapshot()（同一把锁内一致视图）
+    BB-->>T: BlackboardSnapshot（person/cube/mood/intention/各 ts）
+    T->>T: FSM.tick 读 intention 做迁移 + MoodTranslator.tick 仲裁
+    T->>BB: set_mood（mood/mood_source/mood_ts）
+    T->>HAL: drive_wheels / play_animation / set_face / set_*_led
+
+    Note over C: 线程 C 自 M2 起常驻（M2~M3 仅规则兜底，M4 叠加 Gemma）；慢推理不阻塞 A/B
+    C->>BB: 读 world_summary 摘要
+    BB-->>C: world_summary
+    C->>C: RuleFallback（M2 起）/ Gemma decide（M4）
+    C->>BB: set_intention（intention/cog_decision_ts）
+```
+
+#### 1.7.2 跟随主流程：FOLLOW → 丢人 → SEARCH → 重见恢复（§3.6.3 / §3.7 / §1.6.1）
+
+这条覆盖 US3.1~US3.5 的跟随闭环时序，是 §1.6.1 FSM 状态图中 `FOLLOW⇄SEARCH` 那段迁移的对象交互视角。关键时序点：①感知 `visible` 去抖为真 + 认知/规则写 `intention=follow` 共同促成进 FOLLOW，VisualServo 据 cx/size 下发差动轮速；②去抖丢失（下降沿更新 `last_seen_ts`）后任务层每拍实时算 `now-last_seen_ts`，过 T1 进 SEARCH、过 T2 升 anxious；③去抖重见的上升沿先经 surprise（详见 §1.7.3）短暂保持后转 happy、回 FOLLOW；④anxious 起过 T3 仍未重见则回 FREE_ROAM。T1/T2/T3 计时口径见 §3.6.3。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as perception(线程A)
+    participant BB as Blackboard
+    participant C as cognition(线程C)
+    participant T as task(线程B·FSM/VisualServo)
+    participant MT as MoodTranslator
+    participant HAL as HalInterface
+
+    C->>BB: set_intention(follow)（认知/规则写 intention；C 为 intention 唯一写者，§3.8/§4.1）
+    Note over T: visible 去抖=true 且 intention=follow → 进 FOLLOW
+    P->>BB: set_person（visible=true, cx_norm, size_norm, last_seen_ts）
+    T->>BB: snapshot()
+    BB-->>T: snap（person 含 cx/size）
+    T->>HAL: VisualServo drive_wheels（cx→转向, size→进退；§3.7）
+    T->>MT: tick(snap, ctx{following=true,visible=true,moving}, now)
+    MT->>HAL: 移动期仅表情/眼睛/LED（§3.7.3）
+
+    Note over P: 人离开画面，去抖下降沿
+    P->>BB: set_person（visible=false, 刷新 last_seen_ts）
+    T->>BB: snapshot()
+    T->>T: now-last_seen_ts > T1 → 进 SEARCH（mood=confused 经 MT）
+    T->>T: > T2 → anxious（加快/扩大搜索, 黄/红 LED）
+
+    Note over P: 去抖上升沿（重新发现人）
+    P->>BB: set_person（visible=true, 上升沿）
+    T->>BB: snapshot()
+    T->>MT: surprise（短暂保持，见 §1.7.3）→ 到期落点 happy
+    T->>T: 回 FOLLOW
+    Note over T: 若 anxious 起 > T3 仍未重见 → mood=calm, 回 FREE_ROAM（US3.5）
+```
+
+#### 1.7.3 surprise 时序边界四点（§3.5 / §1.6.2 / US1.3·US4.3）
+
+这条是 §1.6.2 surprise 心情生命周期状态图的交互时序展开，逐一对应 §3.5 四个时序点：②不冻结 T1、③空窗心情归属（到期单调升级落点）、①同级事件丢弃、④边沿触发不重入。关键时序点：visible 上升沿在 IDLE 态进入 HOLDING 并下发 surprise 表现（响应时延 ≤ surprise_response_latency，§6.3）；HOLDING 期内同级即时事件丢弃、再来上升沿忽略不重置 hold_deadline；T1 由 `last_seen_ts` 独立驱动，与 surprise 是否在 HOLD 无关；安全反射可随时打断。mood 唯一写者是 MoodTranslator（§3.3.4）。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as perception(线程A)
+    participant BB as Blackboard
+    participant T as task(线程B)
+    participant MT as MoodTranslator
+    participant HAL as HalInterface
+
+    P->>BB: set_person（visible 上升沿）
+    T->>BB: snapshot()
+    T->>MT: tick(snap, ctx, now)
+    Note over MT: IDLE→HOLDING：mood=surprise, hold_deadline=now+SURPRISE_HOLD（④仅 IDLE 上升沿才进入）
+    MT->>BB: set_mood(surprise, immediate, ts)
+    MT->>HAL: 下发 surprise 动画/表情/LED（响应时延上限 surprise_response_latency，§6.3）
+
+    Note over T,MT: ① HOLDING 期内的同级即时事件（被拍/被移动）→ 丢弃，不重置计时
+    Note over T,MT: ④ HOLDING 期内再来 visible 上升沿 → 忽略，不重置 hold_deadline
+    Note over P,T: ② T1 由 last_seen_ts 独立驱动，与 surprise 是否在 HOLD 无关（§3.5②）
+
+    T->>MT: tick（到 hold_deadline）
+    Note over MT: ③ 到期按落点单调升级链降级：ctx.following&visible→happy；visible 假且未到 T1→calm；M1→calm
+    MT->>BB: set_mood(落点 mood, ts)
+    MT->>HAL: 下发落点表现
+```
+
+#### 1.7.4 安全反射闭环（§6.1 / US4.4，唯一不经黑板的直达例外）
+
+这条是全系统**唯一不经黑板**的交互（§1.1/§1.5 的安全反射例外），对应 §1.6.1/§1.6.2 状态图中以 note 标注的"悬崖/碰撞旁路 FSM 立即停"。关键时序点：①`on_cliff` 回调在感知层线程内直接经 HAL `stop_wheels()`，不写黑板等上层、不经 FSM/认知层；②随后置 `cliff_detected=true` 供上层观测/恢复；③HAL 内 `_cliff_active` 硬闸是最后防线——即便任务层下一拍误下发 `drive_wheels` 也被入口 no-op 拦截（§5.1 契约 1，关闭竞态窗口）。安全维度仲裁最高、不可被任何 mood/intention/伺服覆盖。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant HAL as HalInterface
+    participant SR as SafetyReflex(感知层线程内)
+    participant BB as Blackboard
+    participant T as task(线程B)
+
+    Note over HAL,SR: on_cliff 回调运行在感知层线程上下文
+    HAL-->>SR: on_cliff（悬崖/碰撞）
+    SR->>HAL: stop_wheels()（直达·不经黑板·§6.1）
+    HAL->>HAL: 置 _cliff_active=true（硬闸·§5.1 契约1）
+    SR->>BB: set_cliff_detected(true)（供上层观测/恢复）
+    opt 悬崖后退脱离（US2.1，可选）
+        SR->>HAL: drive_wheels 后退 ≤ CLIFF_BACKOFF_MAX（仅放行后退方向）
+    end
+
+    Note over T: 任务层下一拍（10Hz）才读到 cliff_detected
+    T->>BB: snapshot()
+    BB-->>T: snap（cliff_detected=true）
+    T->>T: 第二层（性能优化）：暂停下发驱动指令
+    Note over T,HAL: 即便误下发 drive_wheels，HAL 入口 _cliff_active no-op 兜底（竞态窗口由硬闸关闭）
 ```
 
 ---
@@ -614,7 +777,7 @@ def decide(world_summary: dict, image: bytes | None = None) -> dict:
 
 > curious 触发归属说明（M-A，闭合"七种心情未闭环"）：本设计选**规则兜底（FREE_ROAM 扫描动作）**作为 curious 的确定性落点，而非"SEARCH 进入瞬间给 curious 再转 confused"——后者会与 PRD US3.4「进入 SEARCH 即 confused」的明确语义打架（SEARCH 是"丢人着急找"，给 curious 语义不符）；FREE_ROAM 探索扫描才契合 PRD curious 触发场景"发现新目标/扫描中"。此落点自 M2 规则兜底就位即生效（FREE_ROAM 属 M2），M1 无 FREE_ROAM 故 M1 不触发 curious（M1 只有 surprise/calm，与 §8 里程碑表一致）。
 
-规则兜底由认知层常驻线程 C 执行，而线程 C **自 M2 起即常驻**（§7.1 / §1.3 决策 1）——故规则兜底**自 M2 起就独立可跑**（M2~M3 期间线程 C 只跑这一纯规则 deliberator、全程用规则跑通 intention/mood，如 visible→follow、丢人 T1→confused、FREE_ROAM 扫描→curious）；M4 才把 Gemma agent loop 叠加进同一线程 C，模型返回且未 stale 时覆盖规则结果（仲裁见 §3.4，安全反射永不可覆盖）。须区分：线程 C 生命周期=M2 起，Gemma 能力=M4 才叠加，二者不是一回事。
+规则兜底由认知层常驻线程 C 执行，而线程 C **自 M2 起即常驻**（§7.1 / §1.4 决策 1）——故规则兜底**自 M2 起就独立可跑**（M2~M3 期间线程 C 只跑这一纯规则 deliberator、全程用规则跑通 intention/mood，如 visible→follow、丢人 T1→confused、FREE_ROAM 扫描→curious）；M4 才把 Gemma agent loop 叠加进同一线程 C，模型返回且未 stale 时覆盖规则结果（仲裁见 §3.4，安全反射永不可覆盖）。须区分：线程 C 生命周期=M2 起，Gemma 能力=M4 才叠加，二者不是一回事。
 
 ### 3.9 结构化日志（US4.5，M2 起；M1 已部分使用）
 
@@ -691,7 +854,7 @@ FSM_STATE = {"FREE_ROAM", "PLAY_CUBE", "FOLLOW", "SEARCH"}   # 状态机状态�
 
 2. **所有 `set_*` 与 `snapshot()` 一律走同一把 `threading.Lock`**：不再保留"或依赖 GIL/原子引用"的备选。`snapshot()` 必须在该锁的临界区内一次性拷贝**全部字段引用**（person/cube/cliff/battery/mood/intention/各 ts 等），保证任务层永不拿到"person 新值但 mood 旧值"的撕裂快照。因 person/cube 已是"整体替换"，写临界区只换引用、快照临界区只做浅拷贝引用，临界区仍极短，锁竞争与性能无忧。
 
-> 这两条同时也是 §1.3 决策 2「单写者 + 整体原子替换 + 周期快照」的精确化：单写者保证无写写冲突，同一把锁的临界区快照保证读到的是一致的整快照，不可变保证快照内容不被事后篡改。§7.1 并发模型据此表述统一为"同一把锁 + 不可变对象整体替换 + 快照"，全文无"或依赖 GIL"残留。
+> 这两条同时也是 §1.4 决策 2「单写者 + 整体原子替换 + 周期快照」的精确化：单写者保证无写写冲突，同一把锁的临界区快照保证读到的是一致的整快照，不可变保证快照内容不被事后篡改。§7.1 并发模型据此表述统一为"同一把锁 + 不可变对象整体替换 + 快照"，全文无"或依赖 GIL"残留。
 
 ```python
 class Blackboard:
@@ -1084,3 +1247,51 @@ v1 草案的四个开放问题（D-1/D-2/D-3/N-1）已在本轮（v2）经 devel
 | 顶部状态行 | 升 v4.6、加变更摘要；v4.5 移入历史行 | — |
 
 **边界与一致性**：本轮**未改任何目录名**（未把 `world/` 改 `blackboard/`、未建 `types//data/`、未移动 `moods/`），**未改任何字段/接口/契约/设计语义**，仅动解释性措辞使模块定位清晰；未借机扩展其它章节。**已与用户拍板口径对齐（纯文档澄清、无结构/语义变更），无遗留【设计疑问】。**
+
+#### 10.1.5 补模块图（v4.7，按《撰写要求》新增强制项）
+
+> 背景：fds skill《撰写要求》新增强制项——FDS 必须至少含一张**模块图**（本次设计涉及的各模块及模块间依赖关系，箭头由依赖方指向被依赖方），与类图、状态图并列；缺失即「必须改」。当前 FDS 有 §1.5 分层类图与 §1.6 主流程状态图，独缺模块图。本轮为**纯补图**：新增一张模块粒度的依赖图，并配文字说明整体结构与边界。**未改动任何既有设计语义/对象/关系/字段/接口/契约/目录结构。**
+
+| 落点 | 调整 | 是否动结构/语义 |
+|---|---|---|
+| 新增 §1.3「模块依赖图（模块粒度）」 | 置于原 §1.2 模块表之后、原 §1.3「关键架构决策」之前（最不打乱现有编号的位置）；Mermaid `flowchart LR`，节点=模块（`perception`/`safety`/`task`/`cognition`/`world`/`hal`/`moods`，粒度对齐 §1.2 模块表、不下钻类/函数），边=模块间依赖（依赖方 `-->` 被依赖方）；配一段文字说明整体结构与边界 | 否（新增描述性补图） |
+| 章节编号顺延 | 原 §1.3「关键架构决策」→§1.4；原 §1.4「分层类图」→§1.5（含 §1.4.1~§1.4.5→§1.5.1~§1.5.5）；原 §1.5「主流程状态图」→§1.6（含 §1.5.1~§1.5.2→§1.6.1~§1.6.2） | 否（仅编号顺延） |
+| 全文交叉引用同步 | 更新正文（§1~§9）内指向被顺延章节的活引用：§1.2 表后注（§1.4.4→§1.5.4、§1.3 决策1→§1.4 决策1、§1.4.3→§1.5.3）、§1.5.3 FSM note（§1.4.4→§1.5.4）、§1.6.1 状态图 label（§1.5.2→§1.6.2）、§3.8.3（§1.3 决策1→§1.4 决策1）、§4.2（§1.3 决策2→§1.4 决策2）。§10.1.1~§10.1.4 历史处置记录按其撰写时点的当时编号原样保留（不改写历史记录） | 否（仅引用号同步） |
+| 顶部状态行 | 升 v4.7、加变更摘要；v4.6 移入历史行 | — |
+| 历史编号冻结声明 | 据 developer【建议改】，在顶部历史块之后、`> 上游需求` 行之前新增一句统一总括声明：「历史/v4.x」版本说明块与 §10.1.1~§10.1.4 历史处置记录内的章节号均为各条目撰写时点的当时编号、不随顺延改写，查阅时按当时语境理解。**仅补此一句元说明，未改动任何历史行原文、未改正文编号、未动模块图或其它内容。**视为补元说明、不构成设计变更，版本号保持 v4.7 | 否（仅补元说明） |
+
+**模块图依赖边清单（依赖方 → 被依赖方）**：`perception → world`、`perception → hal`、`task → world`、`task → hal`、`task → moods`、`cognition → world`、`safety → world`、`safety ⇢ hal`（虚线特殊边：安全反射直达停轮、不经黑板，§6.1 例外）。`world`/`hal`/`moods` 为被依赖的枢纽/底层，无出边。
+
+**自洽性核对**：模块图依赖方向与 §1.1 总体结构 ASCII 图（三层只经黑板交换、唯一例外是 safety 经 HAL 直达停轮）、§1.2 读/写黑板列（perception/task/cognition 读写黑板=依赖 `world`；task 经 HAL 下发=依赖 `hal`；task 查 mood 映射=依赖 `moods`；perception 帧/传感器回调=依赖 `hal`；safety 写 cliff_detected=依赖 `world`、direct stop_wheels=依赖 `hal`）、§1.5 分层类图各 `..>` 依赖一一对应，无新增或冲突的依赖。
+
+**边界**：本轮**仅新增模块图及其文字说明、并为容纳它做章节编号顺延与活引用同步**——未新增/删除/修改任何模块、对象、关系、字段、接口、契约、目录结构或其它设计语义；未触碰 PRD。**纯补图、无设计语义变更，无遗留【设计疑问】，可提交用户决策。**
+
+#### 10.1.6 补主流程序列图（v4.8，回应用户反馈）
+
+> 背景：用户反馈现有 §1.6 主流程状态图（§1.6.1 任务层 FSM 四态、§1.6.2 surprise 心情生命周期）表达不够直观，希望针对主流程**补充序列图**——序列图能更好呈现跨层对象的交互与时序。本轮为**纯补图**：**保留状态图不动**，新增一节 §1.7「主流程序列图」作为状态图的**交互时序视角补充**（状态图看状态迁移、序列图看对象交互时序，二者并存互为视角）。participant 与消息一律沿用 §1.2 模块表/§1.5 分层类图/§4.1 黑板字段的既有命名，忠实反映既有的读/写黑板、调用方向、周期/线程归属。**未改动任何既有设计语义/对象/状态/字段/接口/契约。**
+
+| 落点 | 调整 | 是否动结构/语义 |
+|---|---|---|
+| 新增 §1.7「主流程序列图」 | 置于 §1.6 主流程状态图之后、§2 之前；含四张 Mermaid `sequenceDiagram` + 各自简短说明 | 否（新增描述性补图） |
+| §1.7.1 三层+黑板一拍数据流主干 | 对应 §1.1 总体结构 / §4.2 并发契约 / §3.8 认知层；画感知写事实→黑板→任务层 snapshot 后决策下发→认知层线程 C 旁路读摘要写 intention/mood 的一拍时序 | 否 |
+| §1.7.2 跟随主流程 | 对应 §3.6.3 FOLLOW/SEARCH + §3.7 视觉伺服 + §1.6.1 FSM 状态图 `FOLLOW⇄SEARCH` 段；画进 FOLLOW→丢人去抖下降沿→T1 进 SEARCH→T2 升 anxious→重见上升沿经 surprise→happy 回 FOLLOW→T3 收尾的对象交互 | 否 |
+| §1.7.3 surprise 时序边界四点 | 对应 §3.5 四点 + §1.6.2 surprise 心情生命周期状态图；逐点展开 IDLE→HOLDING、同级丢弃、上升沿不重入、T1 独立驱动、到期单调升级落点的交互时序 | 否 |
+| §1.7.4 安全反射闭环 | 对应 §6.1 安全反射 + §5.1 契约1 HAL 硬闸 + US4.4；画 on_cliff→直达 stop_wheels（不经黑板例外）→置 cliff_detected→上层下一拍读到→HAL 硬闸兜底竞态窗口的交互时序 | 否 |
+| 顶部状态行 | 升 v4.8、加变更摘要；v4.7 移入历史行 | — |
+
+**忠实度核对（序列图消息逐一对得上既有正文/状态图/字段）**：①§1.7.1 的 `set_person/set_cube`、`snapshot()` 同锁一致视图、`set_mood`、`set_intention`、线程 A/B/C 周期与"先 snapshot 再决策再下发"，对齐 §4.1/§4.2/§7.1/§8（S-9）；②§1.7.2 的 cx/size→VisualServo 差动轮速、移动期仅表情/LED、`now-last_seen_ts` 实时算 T1/T2、T3 以 anxious 起算，对齐 §3.6.3/§3.7；③§1.7.3 四点（HOLDING 进入条件、同级丢弃、上升沿忽略不重置 hold_deadline、T1 独立、到期落点 happy/calm）逐条对齐 §3.5 ①~④ 与 §1.6.2 状态图 note；④§1.7.4 的"直达 stop_wheels 不经黑板"+"_cliff_active 硬闸 no-op"+"上层据 cliff_detected 暂停下发为性能优化"对齐 §6.1 双层防护与 §5.1 契约1。mood 唯一写者=MoodTranslator、intention 单写者=认知层（含 RuleFallback）、FSM 只读 intention 等既有单写者契约在序列图中均未被破坏。
+
+**交叉引用一致性**：§1.7 各图说明显式回指 §1.6.1/§1.6.2 状态图对应段落（"对应/对得上某状态图"），状态图章节本身未改动、其内对 §1.6.2 等的引用仍有效；新增节位于 §1.6 之后、§2 之前，§2 及以后编号未变、无需顺延，全文其它交叉引用不受影响。
+
+**边界**：本轮**仅新增 §1.7 四张序列图及其文字说明**——保留 §1.6 状态图不动，未新增/删除/修改任何对象、状态、字段、接口、契约、模块或其它设计语义；未触碰 PRD。通读中未发现序列图与既有正文/状态图存在无法两全的矛盾。**纯补图、无设计语义变更，无遗留【设计疑问】，可提交用户决策。**
+
+**v4.8 内序列图评审微调（developer 评审处置，仍纯补图）**：developer 对 §1.7 四图评审结论无【必须改】，2 条【建议改】+ 2 条【可选】逐条处置如下，均为图面表达/可读性微调，零新语义。
+
+| 意见 | 级别 | 处置 | 落点 |
+|---|---|---|---|
+| §1.7.1 cliff_detected 归 P、§1.7.4 归 SR，读者疑似两写者 | 建议改 | 采纳（取"加说明"方案，保留感知侧写事实的合并表达） | §1.7.1 该消息后新增 Note："cliff_detected 实际由感知层内 safety 写（见 §1.7.4），此处合并为感知侧写事实，非另立写者" |
+| §1.7.2 认知层 C 声明却无消息、空泳道 | 建议改 | 采纳"补消息"方案（优于删 participant，呼应正文且更完整） | §1.7.2 进 FOLLOW 前补 `C->>BB: set_intention(follow)`；C 本就是 intention 唯一合法写者，与"intention 单写者=认知层（含 RuleFallback）、FSM 只读 intention"契约一致，未引入新写者/新语义 |
+| §1.7.1 前三 set_xxx、第四 `battery` 写法不一 | 可选 | 采纳 | `battery`→`set_battery`，四个统一为 set_* |
+| §1.7.3 Note 用 `<br/>` 与其它图纯文本风格不一 | 可选 | 采纳 | §1.7.3 到期落点 Note 去 `<br/>`、改纯文本 |
+
+四处均只动图面文本/消息行，未新增/修改任何对象、状态、字段、接口、契约或设计语义；忠实度核对与单写者契约（mood 唯一写者 MoodTranslator、intention 单写者认知层、FSM 只读 intention）仍成立。**仍为纯补图，无设计语义变更，与 developer 已对齐，可提交用户决策。**
