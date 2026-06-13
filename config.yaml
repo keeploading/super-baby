@@ -1,0 +1,32 @@
+# M1 运行时配置（键名与 FDS §3.4 一致；全部可配置、联调再调）
+
+# ── 感知/去抖 ──
+visible_on_frames: 3            # 连续命中翻 true（US1.2/US3.6）
+visible_off_frames: 3           # 连续未命中翻 false
+perception_fps_log_interval: 1.0  # 感知层耗时/FPS 日志聚合间隔(s)
+# 单帧原始 visible 判定（接受局部关键点子集，US1.2/US3.6，FDS §4.2.2 双闸；控假阳门槛，实测调）
+landmark_min_confidence: 0.5    # 单个 landmark 计入"命中"的最低置信度(visibility/presence)
+visible_min_landmarks: 6        # 单帧达置信度的关键点数 ≥ 此值（第一闸：足够人体证据）
+upper_body_core: [0, 11, 12, 23, 24]  # 上半身核心子集(BlazePose 索引：鼻/双肩/双髋)，控假阳
+visible_core_min: 2             # 上半身核心子集中达置信度的点数 ≥ 此值（第二闸：上半身结构成立）
+
+# ── 心情/计时 ──
+surprise_hold: 1.5              # surprise 最短保持(s)（US1.3）；与"1.5s 响应时延上限"正交独立
+surprise_response_latency: 1.5  # 从 visible 翻转到开始播 surprise 的响应时延上限(s)；独立于 surprise_hold
+
+# ── 三层周期 ──
+perception_hz: 30
+task_hz: 10
+
+# ── 动画/链路（具体 .bin 名从 pycozmo 资源选定，可不改代码更换）──
+wake_animation: anim_launch_altwakeup_01
+
+# ── 相机/模型 ──
+camera_color: false             # false=灰度（pycozmo 默认）
+pose_model_path: models/pose_landmarker_lite.task
+head_angle_on_start: 0.77       # 弧度，连接后抬头角（MAX=0.776，摄像头朝上看人）
+
+# ── 连接诊断（排查"断电/掉线/休眠"，US4.5）──
+diag_interval_s: 2.0            # 电量/链路诊断日志间隔(s)
+low_battery_v: 3.6             # 离开充电座低于此电压判接近耗尽（Cozmo ~3.5V 自动关机）
+link_stale_s: 3.0             # 底层遥测(RobotState)超过此秒数未更新 → 判链路可能已断

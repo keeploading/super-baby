@@ -1,0 +1,22 @@
+[project]
+name = "super-baby"
+version = "0.1.0"
+description = "Cozmo 感知-任务-认知三层架构机器人应用（follow-me，M1 起）"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pycozmo==0.8.0",
+    "mediapipe>=0.10.21,<0.11",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

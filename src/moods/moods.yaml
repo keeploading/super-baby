@@ -1,0 +1,13 @@
+# 心情映射表（FDS §7.6）：纯数据，mood → {animation, face, backpack_led}
+# - animation：pycozmo 预设 .bin 动画名（实机用 src/tools/list_anims.py 从资源选定；null=不播整段动画）
+# - face：pycozmo.expressions 表情类名（Neutral/Surprise/Happiness/...）
+# - backpack_led：背包 LED 颜色名（hal 内映射到 pycozmo.lights）
+# M1 仅 calm/surprise 生效；其余五种 M2 起填充。
+moods:
+  calm:     { animation: null,                      face: Neutral,  backpack_led: dim_white }
+  surprise: { animation: anim_reacttppl_surprise, face: Surprise, backpack_led: white }
+  happy:    { animation: null, face: Happiness,  backpack_led: green }  # M2 填
+  playful:  { animation: null, face: Excitement, backpack_led: cyan }   # M2 填
+  curious:  { animation: null, face: Amazement,  backpack_led: blue }   # M2 填
+  confused: { animation: null, face: Confusion,  backpack_led: amber }  # M2 填
+  anxious:  { animation: null, face: Fear,       backpack_led: red }    # M2 填
